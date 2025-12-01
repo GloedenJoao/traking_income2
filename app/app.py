@@ -263,8 +263,7 @@ async def upload_file(request: Request):
     body = await request.body()
     # Separa partes pelo boundary
     sections = body.split(boundary_bytes)
-    file_name = None
-    file_content = None
+    files_data: List[Tuple[str, bytes]] = []
     confirm_flag = False
     for section in sections:
         if not section or section == b'--\r\n':
@@ -290,53 +289,70 @@ async def upload_file(request: Request):
             if attr.startswith('filename='):
                 filename = attr.split('=', 1)[1].strip().strip('"')
         if filename:
-            file_name = filename
-            file_content = content.rstrip(b'\r\n')  # remove CRLF final
+            files_data.append((filename, content.rstrip(b'\r\n')))
         elif field_name == 'confirm':
             value = content.rstrip(b'\r\n').decode(errors='ignore')
             confirm_flag = value.strip() == '1'
-    if not file_name or file_content is None:
+    if not files_data:
         url = app.url_path_for('index') + '?msg=' + 'Nenhum arquivo encontrado no upload.'
         return RedirectResponse(url, status_code=303)
-    if not allowed_file(file_name):
-        url = app.url_path_for('index') + '?msg=' + 'Extensão de arquivo não permitida.'
-        return RedirectResponse(url, status_code=303)
-    secure_name = file_name.replace('/', '_')
-    save_path = os.path.join(UPLOAD_FOLDER, secure_name)
-    temp_path = save_path + '.upload'
-    with open(temp_path, 'wb') as f:
-        f.write(file_content)
-    try:
-        parsed = parse_pdf(temp_path)
-    except Exception as e:
-        os.remove(temp_path)
-        url = app.url_path_for('index') + '?msg=' + f'Falha ao processar PDF: {e}'
-        return RedirectResponse(url, status_code=303)
-    mes_key = parsed.get('mes_key')
-    existing_month_files = get_files_by_month(mes_key)
-    duplicate_name = os.path.exists(save_path)
-    duplicate_month = bool(existing_month_files)
-    if (duplicate_name or duplicate_month) and not confirm_flag:
-        os.remove(temp_path)
-        messages = []
+
+    messages: List[str] = []
+    reconfirm_needed = False
+
+    for file_name, file_content in files_data:
+        if not allowed_file(file_name):
+            messages.append(f'Extensão de arquivo não permitida para {file_name}.')
+            continue
+
+        secure_name = file_name.replace('/', '_')
+        save_path = os.path.join(UPLOAD_FOLDER, secure_name)
+        temp_path = save_path + '.upload'
+        with open(temp_path, 'wb') as f:
+            f.write(file_content)
+        try:
+            parsed = parse_pdf(temp_path)
+        except Exception as e:
+            os.remove(temp_path)
+            messages.append(f'Falha ao processar {secure_name}: {e}')
+            continue
+
+        mes_key = parsed.get('mes_key')
+        existing_month_files = get_files_by_month(mes_key)
+        duplicate_name = os.path.exists(save_path)
+        duplicate_month = bool(existing_month_files)
+
+        if (duplicate_name or duplicate_month) and not confirm_flag:
+            os.remove(temp_path)
+            details = []
+            if duplicate_name:
+                details.append(f'O arquivo {secure_name} já existe.')
+            if duplicate_month:
+                details.append(
+                    f'O mês {parsed.get("mes_ano", mes_key)} já está cadastrado (arquivos: {", ".join(existing_month_files)}).'
+                )
+            messages.append(' '.join(details) + ' Confirme a substituição marcando a opção no formulário e envie novamente.')
+            reconfirm_needed = True
+            continue
+
         if duplicate_name:
-            messages.append(f'O arquivo {secure_name} já existe.')
+            remove_statement(secure_name)
         if duplicate_month:
-            messages.append(f'O mês {parsed.get("mes_ano", mes_key)} já está cadastrado (arquivos: {", ".join(existing_month_files)}).')
-        msg = ' '.join(messages) + " Confirme a substituição marcando a opção no formulário e envie novamente."
-        url = app.url_path_for('index') + '?msg=' + msg + '&confirm=1'
-        return RedirectResponse(url, status_code=303)
+            for fname in existing_month_files:
+                if fname != secure_name:
+                    remove_statement(fname)
 
-    if duplicate_name:
-        remove_statement(secure_name)
-    if duplicate_month:
-        for fname in existing_month_files:
-            if fname != secure_name:
-                remove_statement(fname)
+        os.replace(temp_path, save_path)
+        insert_statement(secure_name, parsed)
+        messages.append(f'Arquivo {secure_name} carregado com sucesso.')
 
-    os.replace(temp_path, save_path)
-    insert_statement(secure_name, parsed)
-    url = app.url_path_for('index') + '?msg=' + f'Arquivo {secure_name} carregado com sucesso.'
+    if not messages:
+        messages.append('Nenhum arquivo foi processado.')
+
+    msg_param = '; '.join(messages)
+    url = app.url_path_for('index') + '?msg=' + msg_param
+    if reconfirm_needed:
+        url += '&confirm=1'
     return RedirectResponse(url, status_code=303)
 
 
