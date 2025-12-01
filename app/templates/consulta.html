@@ -19,7 +19,6 @@
       <tr>
         <th>Descrição</th>
         <th>Quantidade</th>
-        <th>Unidade</th>
         <th>Proventos (R$)</th>
         <th>Descontos (R$)</th>
         <th>Arquivo</th>
@@ -30,7 +29,6 @@
       <tr>
         <td>{{ row['descricao'] }}</td>
         <td>{{ row['quantidade'] or '-' }}</td>
-        <td>{{ row['unidade'] or '-' }}</td>
         <td>{{ row['proventos'] | currency_br }}</td>
         <td>{{ row['descontos'] | currency_br }}</td>
         <td>{{ row['file_name'] }}</td>
