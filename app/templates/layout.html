@@ -103,6 +103,30 @@
         border-color: var(--border-color);
       }
 
+      .custom-file-label {
+        background-color: var(--surface-color);
+        color: var(--text-color);
+        border: 1px solid var(--border-color);
+      }
+
+      .custom-file-input:focus ~ .custom-file-label,
+      .custom-file:hover .custom-file-label {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 0.2rem rgba(100, 181, 246, 0.25);
+      }
+
+      .custom-file-label::after {
+        background-color: var(--accent);
+        color: var(--accent-contrast);
+        border-left: 1px solid var(--border-color);
+      }
+
+      .custom-file:hover .custom-file-label::after,
+      .custom-file-input:focus ~ .custom-file-label::after {
+        background-color: var(--link-hover);
+        color: var(--accent-contrast);
+      }
+
       .form-check-label,
       label {
         color: var(--text-color);
@@ -229,6 +253,23 @@
             localStorage.setItem('theme', useDark ? 'dark' : 'light');
           });
         }
+
+        var fileInputs = document.querySelectorAll('.custom-file-input');
+        fileInputs.forEach(function(input) {
+          var label = input.nextElementSibling;
+          if (!label) {
+            return;
+          }
+
+          var defaultText = label.textContent.trim() || 'Selecione arquivos PDF';
+          label.dataset.defaultLabel = defaultText;
+
+          input.addEventListener('change', function() {
+            var files = Array.prototype.slice.call(input.files || []);
+            var names = files.map(function(file) { return file.name; });
+            label.textContent = names.length ? names.join(', ') : label.dataset.defaultLabel;
+          });
+        });
       })();
     </script>
   </body>
