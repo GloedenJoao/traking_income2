@@ -1,0 +1,25 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h2>Dashboard</h2>
+
+{% if graphs_json %}
+  <div id="graphs"></div>
+  <!-- Plotly JS via CDN -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script>
+    // Parse the JSON containing the Plotly figures
+    var figures = JSON.parse('{{ graphs_json | safe }}');
+    // Render each figure into its own div
+    for (var i = 0; i < figures.length; i++) {
+      var fig = figures[i];
+      var divId = 'graph_' + i;
+      var div = document.createElement('div');
+      div.id = divId;
+      document.getElementById('graphs').appendChild(div);
+      Plotly.newPlot(divId, fig['data'], fig['layout']);
+    }
+  </script>
+{% else %}
+  <p>Nenhum dado disponível para exibir o dashboard.</p>
+{% endif %}
+{% endblock %}

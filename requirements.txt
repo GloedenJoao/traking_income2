@@ -1,0 +1,7 @@
+
+# Dependências da aplicação
+fastapi
+uvicorn
+pymupdf
+plotly
+jinja2
