@@ -37,6 +37,25 @@ app = FastAPI()
 # Configuração de templates Jinja2
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, 'templates'))
 
+
+def format_currency_brl(value):
+    """Formata valores monetários com prefixo R$, separador de milhar e duas casas.
+
+    Valores nulos retornam um marcador legível para evitar exibições vazias no template.
+    """
+
+    if value is None:
+        return "N/D"
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return "N/D"
+    formatted = f"R$ {amount:,.2f}"
+    return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+templates.env.filters["currency_br"] = format_currency_brl
+
 # Monta diretório de uploads como estático para servir PDFs
 app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
 
