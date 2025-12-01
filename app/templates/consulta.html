@@ -31,8 +31,8 @@
         <td>{{ row['descricao'] }}</td>
         <td>{{ row['quantidade'] or '-' }}</td>
         <td>{{ row['unidade'] or '-' }}</td>
-        <td>{{ row['proventos'] if row['proventos'] is not none else '-' }}</td>
-        <td>{{ row['descontos'] if row['descontos'] is not none else '-' }}</td>
+        <td>{{ row['proventos'] | currency_br }}</td>
+        <td>{{ row['descontos'] | currency_br }}</td>
         <td>{{ row['file_name'] }}</td>
       </tr>
       {% endfor %}
@@ -41,9 +41,9 @@
   {% if totals %}
     <h4>Totais consolidados</h4>
     <ul>
-      <li><strong>Total de Proventos:</strong> {{ totals['total_proventos'] if totals['total_proventos'] is not none else 'N/A' }}</li>
-      <li><strong>Total de Descontos:</strong> {{ totals['total_descontos'] if totals['total_descontos'] is not none else 'N/A' }}</li>
-      <li><strong>Valor Líquido:</strong> {{ totals['liquido'] if totals['liquido'] is not none else 'N/A' }}</li>
+      <li><strong>Total de Proventos:</strong> {{ totals['total_proventos'] | currency_br }}</li>
+      <li><strong>Total de Descontos:</strong> {{ totals['total_descontos'] | currency_br }}</li>
+      <li><strong>Valor Líquido:</strong> {{ totals['liquido'] | currency_br }}</li>
     </ul>
   {% endif %}
 {% elif selected_key %}
