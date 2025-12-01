@@ -157,6 +157,19 @@ def get_uploaded_files() -> List[str]:
     return sorted([f for f in os.listdir(UPLOAD_FOLDER) if f.lower().endswith('.pdf')])
 
 
+def get_files_by_month(mes_key: Optional[str]) -> List[str]:
+    """Retorna nomes de arquivos já cadastrados para o mês informado."""
+
+    if not mes_key:
+        return []
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT DISTINCT file_name FROM monthly_totals WHERE mes_key = ?', (mes_key,))
+    rows = cur.fetchall()
+    conn.close()
+    return [row['file_name'] for row in rows]
+
+
 def get_months_available() -> List[Tuple[str, str]]:
     conn = get_db_connection()
     cur = conn.cursor()
@@ -219,9 +232,9 @@ def startup_event():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request, msg: Optional[str] = None):
+async def index(request: Request, msg: Optional[str] = None, confirm: Optional[int] = None):
     files = get_uploaded_files()
-    return templates.TemplateResponse('index.html', {"request": request, "files": files, "msg": msg})
+    return templates.TemplateResponse('index.html', {"request": request, "files": files, "msg": msg, "confirm": confirm})
 
 
 @app.post("/upload")
@@ -252,6 +265,7 @@ async def upload_file(request: Request):
     sections = body.split(boundary_bytes)
     file_name = None
     file_content = None
+    confirm_flag = False
     for section in sections:
         if not section or section == b'--\r\n':
             continue
@@ -266,18 +280,21 @@ async def upload_file(request: Request):
             continue
         header_bytes = part[:header_end].decode(errors='ignore')
         content = part[header_end + 4:]
-        if 'filename=' in header_bytes:
-            # Obtém o nome do arquivo
-            disposition = header_bytes.split('\r\n')[0]
-            # Ex: Content-Disposition: form-data; name="file"; filename="example.pdf"
-            for attr in disposition.split(';'):
-                attr = attr.strip()
-                if attr.startswith('filename='):
-                    value = attr.split('=', 1)[1].strip().strip('"')
-                    file_name = value
-                    break
+        disposition = header_bytes.split('\r\n')[0]
+        field_name = None
+        filename = None
+        for attr in disposition.split(';'):
+            attr = attr.strip()
+            if attr.startswith('name='):
+                field_name = attr.split('=', 1)[1].strip().strip('"')
+            if attr.startswith('filename='):
+                filename = attr.split('=', 1)[1].strip().strip('"')
+        if filename:
+            file_name = filename
             file_content = content.rstrip(b'\r\n')  # remove CRLF final
-            break
+        elif field_name == 'confirm':
+            value = content.rstrip(b'\r\n').decode(errors='ignore')
+            confirm_flag = value.strip() == '1'
     if not file_name or file_content is None:
         url = app.url_path_for('index') + '?msg=' + 'Nenhum arquivo encontrado no upload.'
         return RedirectResponse(url, status_code=303)
@@ -286,14 +303,38 @@ async def upload_file(request: Request):
         return RedirectResponse(url, status_code=303)
     secure_name = file_name.replace('/', '_')
     save_path = os.path.join(UPLOAD_FOLDER, secure_name)
-    with open(save_path, 'wb') as f:
+    temp_path = save_path + '.upload'
+    with open(temp_path, 'wb') as f:
         f.write(file_content)
     try:
-        parsed = parse_pdf(save_path)
+        parsed = parse_pdf(temp_path)
     except Exception as e:
-        os.remove(save_path)
+        os.remove(temp_path)
         url = app.url_path_for('index') + '?msg=' + f'Falha ao processar PDF: {e}'
         return RedirectResponse(url, status_code=303)
+    mes_key = parsed.get('mes_key')
+    existing_month_files = get_files_by_month(mes_key)
+    duplicate_name = os.path.exists(save_path)
+    duplicate_month = bool(existing_month_files)
+    if (duplicate_name or duplicate_month) and not confirm_flag:
+        os.remove(temp_path)
+        messages = []
+        if duplicate_name:
+            messages.append(f'O arquivo {secure_name} já existe.')
+        if duplicate_month:
+            messages.append(f'O mês {parsed.get("mes_ano", mes_key)} já está cadastrado (arquivos: {", ".join(existing_month_files)}).')
+        msg = ' '.join(messages) + " Confirme a substituição marcando a opção no formulário e envie novamente."
+        url = app.url_path_for('index') + '?msg=' + msg + '&confirm=1'
+        return RedirectResponse(url, status_code=303)
+
+    if duplicate_name:
+        remove_statement(secure_name)
+    if duplicate_month:
+        for fname in existing_month_files:
+            if fname != secure_name:
+                remove_statement(fname)
+
+    os.replace(temp_path, save_path)
     insert_statement(secure_name, parsed)
     url = app.url_path_for('index') + '?msg=' + f'Arquivo {secure_name} carregado com sucesso.'
     return RedirectResponse(url, status_code=303)
