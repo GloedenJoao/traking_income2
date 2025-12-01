@@ -6,9 +6,209 @@
     <title>Gestão de Demonstrativos</title>
     <!-- Bootstrap CSS via CDN -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+      :root {
+        --bg-dark: #0a0f1c;
+        --surface: #111a2b;
+        --surface-alt: #182339;
+        --primary: #2f6fd6;
+        --primary-strong: #3c82f0;
+        --gold: #c69a24;
+        --text: #e5e9f2;
+        --muted: #9aa6c4;
+        --border: rgba(255, 255, 255, 0.08);
+      }
+
+      body {
+        background: var(--bg-dark);
+        color: var(--text);
+        min-height: 100vh;
+      }
+
+      .navbar {
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+      }
+
+      .navbar-brand,
+      .nav-link {
+        color: var(--text) !important;
+        font-weight: 600;
+      }
+
+      .nav-link:hover,
+      .nav-link:focus,
+      .nav-link.active {
+        color: var(--gold) !important;
+      }
+
+      .container {
+        max-width: 1100px;
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        box-shadow: 0 12px 35px rgba(0, 0, 0, 0.35);
+      }
+
+      h1, h2, h3, h4, h5 {
+        color: var(--text);
+        font-weight: 700;
+      }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 1rem;
+      }
+
+      .section-title span {
+        display: inline-flex;
+        width: 12px;
+        height: 12px;
+        border-radius: 4px;
+        background: var(--gold);
+        box-shadow: 0 0 0 2px rgba(198, 154, 36, 0.2);
+      }
+
+      .form-control,
+      .custom-select,
+      .form-control-file,
+      .custom-file-input {
+        background: var(--surface-alt);
+        border: 1px solid #22314f;
+        color: var(--text);
+      }
+
+      .form-control:focus,
+      .custom-select:focus,
+      .form-control-file:focus,
+      .custom-file-input:focus {
+        box-shadow: 0 0 0 0.2rem rgba(47, 127, 214, 0.25);
+        border-color: var(--primary);
+        color: var(--text);
+      }
+
+      .btn-primary {
+        background: var(--primary);
+        border: 1px solid #2b63bd;
+        color: #f7f9ff;
+        font-weight: 700;
+        box-shadow: 0 10px 25px rgba(47, 127, 214, 0.35);
+      }
+
+      .btn-primary:hover {
+        background: var(--primary-strong);
+        box-shadow: 0 12px 28px rgba(60, 130, 240, 0.4);
+      }
+
+      .btn-outline-warning {
+        color: var(--gold);
+        border-color: var(--gold);
+        font-weight: 700;
+      }
+
+      .btn-outline-warning:hover {
+        background: var(--gold);
+        color: #0c1321;
+        box-shadow: 0 6px 16px rgba(212, 175, 55, 0.35);
+      }
+
+      .table {
+        color: var(--text);
+        border-color: rgba(212, 175, 55, 0.18);
+      }
+
+      .table thead th {
+        background: #1a2740;
+        border-bottom: 1px solid var(--border);
+        color: var(--text);
+      }
+
+      .table-striped tbody tr:nth-of-type(odd) {
+        background-color: rgba(255, 255, 255, 0.02);
+      }
+
+      .table-striped tbody tr:nth-of-type(even) {
+        background-color: rgba(255, 255, 255, 0.04);
+      }
+
+      .table-hover tbody tr:hover {
+        background-color: rgba(29, 111, 220, 0.08);
+      }
+
+      .card-muted {
+        border-color: var(--border);
+      }
+
+      .text-muted {
+        color: var(--muted) !important;
+      }
+
+      a {
+        color: var(--primary);
+      }
+
+      a:hover {
+        color: var(--primary-strong);
+        text-decoration: none;
+      }
+
+      .file-input {
+        padding: 0.75rem 1rem;
+        border-radius: 10px;
+        background: var(--surface-alt);
+        border: 1px dashed #2b63bd;
+        transition: border-color 0.2s ease, background 0.2s ease;
+      }
+
+      .file-input:hover,
+      .file-input:focus-within {
+        background: #1c2942;
+        border-color: var(--primary-strong);
+      }
+
+      .file-input input[type="file"] {
+        width: 100%;
+        background: transparent;
+        border: none;
+        padding: 0;
+      }
+
+      .file-input input[type="file"]::-webkit-file-upload-button {
+        background: var(--primary);
+        border: 1px solid #2b63bd;
+        color: #f7f9ff;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        margin-right: 0.75rem;
+        cursor: pointer;
+      }
+
+      .file-input input[type="file"]::file-selector-button {
+        background: var(--primary);
+        border: 1px solid #2b63bd;
+        color: #f7f9ff;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        margin-right: 0.75rem;
+        cursor: pointer;
+      }
+
+      .file-input input[type="file"]::-webkit-file-upload-button:hover,
+      .file-input input[type="file"]::file-selector-button:hover {
+        background: var(--primary-strong);
+      }
+    </style>
   </head>
   <body>
-    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+    <nav class="navbar navbar-expand-lg navbar-dark mb-4">
       <a class="navbar-brand" href="{{ request.url_for('index') }}">Demonstrativos</a>
       <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon"></span>
@@ -27,7 +227,7 @@
         </ul>
       </div>
     </nav>
-    <div class="container">
+    <div class="container pb-4">
       {% block content %}{% endblock %}
     </div>
     <!-- Bootstrap JS and dependencies -->

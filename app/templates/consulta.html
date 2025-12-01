@@ -1,52 +1,78 @@
 {% extends 'layout.html' %}
 {% block content %}
-<h2>Consulta de demonstrativos</h2>
-<form method="get" action="{{ request.url_for('consulta_get') }}" class="form-inline mb-3">
-  <label class="mr-2" for="mes_key">Selecione o mês:</label>
-  <select class="form-control mr-2" name="mes_key" id="mes_key" required>
-    <option value="">-- Selecione --</option>
-    {% for key, label in months %}
-      <option value="{{ key }}" {% if selected_key == key %}selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  <button type="submit" class="btn btn-primary">Consultar</button>
-</form>
+<div class="section-title">
+  <span></span>
+  <h2>Consulta de demonstrativos</h2>
+</div>
+<div class="card p-4 mb-4">
+  <form method="get" action="{{ request.url_for('consulta_get') }}">
+    <div class="form-row align-items-end">
+      <div class="form-group col-md-8 col-lg-6">
+        <label for="mes_key">Selecione o mês</label>
+        <select class="custom-select" name="mes_key" id="mes_key" required>
+          <option value="">-- Selecione --</option>
+          {% for key, label in months %}
+            <option value="{{ key }}" {% if selected_key == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group col-md-4 col-lg-3">
+        <label class="d-block">&nbsp;</label>
+        <button type="submit" class="btn btn-primary btn-block">Consultar</button>
+      </div>
+    </div>
+  </form>
+</div>
 
 {% if items %}
-  <h4>Itens do mês</h4>
-  <table class="table table-striped table-sm">
-    <thead>
-      <tr>
-        <th>Descrição</th>
-        <th>Quantidade</th>
-        <th>Unidade</th>
-        <th>Proventos (R$)</th>
-        <th>Descontos (R$)</th>
-        <th>Arquivo</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in items %}
-      <tr>
-        <td>{{ row['descricao'] }}</td>
-        <td>{{ row['quantidade'] or '-' }}</td>
-        <td>{{ row['unidade'] or '-' }}</td>
-        <td>{{ row['proventos'] if row['proventos'] is not none else '-' }}</td>
-        <td>{{ row['descontos'] if row['descontos'] is not none else '-' }}</td>
-        <td>{{ row['file_name'] }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="section-title">
+    <span></span>
+    <h4>Itens do mês</h4>
+  </div>
+  <div class="card p-3 mb-4">
+    <div class="table-responsive mb-0">
+      <table class="table table-hover table-striped table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Descrição</th>
+            <th>Quantidade</th>
+            <th>Unidade</th>
+            <th>Proventos (R$)</th>
+            <th>Descontos (R$)</th>
+            <th>Arquivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in items %}
+          <tr>
+            <td>{{ row['descricao'] }}</td>
+            <td>{{ row['quantidade'] or '-' }}</td>
+            <td>{{ row['unidade'] or '-' }}</td>
+            <td>{{ row['proventos'] if row['proventos'] is not none else '-' }}</td>
+            <td>{{ row['descontos'] if row['descontos'] is not none else '-' }}</td>
+            <td>{{ row['file_name'] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
   {% if totals %}
-    <h4>Totais consolidados</h4>
-    <ul>
-      <li><strong>Total de Proventos:</strong> {{ totals['total_proventos'] if totals['total_proventos'] is not none else 'N/A' }}</li>
-      <li><strong>Total de Descontos:</strong> {{ totals['total_descontos'] if totals['total_descontos'] is not none else 'N/A' }}</li>
-      <li><strong>Valor Líquido:</strong> {{ totals['liquido'] if totals['liquido'] is not none else 'N/A' }}</li>
-    </ul>
+    <div class="section-title">
+      <span></span>
+      <h4>Totais consolidados</h4>
+    </div>
+    <div class="card card-muted p-3">
+      <ul class="mb-0">
+        <li><strong>Total de Proventos:</strong> {{ totals['total_proventos'] if totals['total_proventos'] is not none else 'N/A' }}</li>
+        <li><strong>Total de Descontos:</strong> {{ totals['total_descontos'] if totals['total_descontos'] is not none else 'N/A' }}</li>
+        <li><strong>Valor Líquido:</strong> {{ totals['liquido'] if totals['liquido'] is not none else 'N/A' }}</li>
+      </ul>
+    </div>
   {% endif %}
 {% elif selected_key %}
-  <p>Nenhum dado encontrado para o mês selecionado.</p>
+  <div class="card card-muted p-4">
+    <p class="mb-0 text-muted">Nenhum dado encontrado para o mês selecionado.</p>
+  </div>
 {% endif %}
 {% endblock %}
