@@ -82,7 +82,6 @@ def init_db():
             mes_ano TEXT,
             descricao TEXT,
             quantidade TEXT,
-            unidade TEXT,
             proventos REAL,
             descontos REAL
         )
@@ -114,15 +113,14 @@ def insert_statement(file_name: str, parsed: dict) -> None:
     cur = conn.cursor()
     for item in items:
         cur.execute(
-            '''INSERT INTO item_view (file_name, mes_key, mes_ano, descricao, quantidade, unidade, proventos, descontos)
-               VALUES (?,?,?,?,?,?,?,?)''',
+            '''INSERT INTO item_view (file_name, mes_key, mes_ano, descricao, quantidade, proventos, descontos)
+               VALUES (?,?,?,?,?,?,?)''',
             (
                 file_name,
                 mes_key,
                 mes_ano,
                 item['descricao'],
                 item.get('quantidade'),
-                item.get('unidade'),
                 item.get('proventos'),
                 item.get('descontos'),
             )
@@ -172,9 +170,9 @@ def get_items_by_month(mes_key: str):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        '''SELECT descricao, quantidade, unidade, proventos, descontos, file_name
+        '''SELECT descricao, quantidade, proventos, descontos, file_name
            FROM item_view WHERE mes_key = ? ORDER BY descricao''',
-        (mes_key,)
+        (mes_key,),
     )
     rows = cur.fetchall()
     conn.close()

@@ -126,7 +126,7 @@ def parse_pdf(path: str) -> Dict[str, object]:
         - ``mes_key``: an ISO date string (``YYYY-MM-01``) useful for
           grouping and sorting chronologically
         - ``items``: list of dictionaries, one per row, with keys
-          ``descricao``, ``quantidade``, ``unidade``, ``proventos`` and
+          ``descricao``, ``quantidade``, ``proventos`` and
           ``descontos`` (floats or ``None``)
         - ``totals``: dictionary with keys ``total_proventos``,
           ``total_descontos`` and ``liquido`` (floats or ``None``)
@@ -160,7 +160,6 @@ def parse_pdf(path: str) -> Dict[str, object]:
         row.sort(key=lambda x: x[0])
         desc_tokens: List[str] = []
         qtde_tokens: List[str] = []
-        unid_tokens: List[str] = []
         prov_tokens: List[str] = []
         descs_tokens: List[str] = []
         # Flag to break outer loop when summary section starts
@@ -185,7 +184,9 @@ def parse_pdf(path: str) -> Dict[str, object]:
             elif x0 < b_qtde:
                 qtde_tokens.append(text)
             elif x0 < b_unid:
-                unid_tokens.append(text)
+                # A coluna "Unid" é ignorada, mas sua posição delimita as demais
+                # colunas numéricas.
+                continue
             elif x0 < b_prov:
                 prov_tokens.append(text)
             else:
@@ -196,7 +197,6 @@ def parse_pdf(path: str) -> Dict[str, object]:
             continue
         descricao = " ".join(desc_tokens).strip()
         quantidade = " ".join(qtde_tokens).strip()
-        unidade = " ".join(unid_tokens).strip()
         prov_str = " ".join(prov_tokens).strip()
         desc_str = " ".join(descs_tokens).strip()
         proventos = _parse_value(prov_str)
@@ -204,7 +204,6 @@ def parse_pdf(path: str) -> Dict[str, object]:
         items.append({
             "descricao": descricao,
             "quantidade": quantidade or None,
-            "unidade": unidade or None,
             "proventos": proventos,
             "descontos": descontos,
         })
