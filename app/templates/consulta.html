@@ -40,8 +40,28 @@
     <h4>Totais consolidados</h4>
     <ul>
       <li><strong>Total de Proventos:</strong> {{ totals['total_proventos'] | currency_br }}</li>
-      <li><strong>Total de Descontos:</strong> {{ totals['total_descontos'] | currency_br }}</li>
-      <li><strong>Valor Líquido:</strong> {{ totals['liquido'] | currency_br }}</li>
+      <li>
+        <strong>Total de Descontos:</strong>
+        {{ totals['total_descontos'] | currency_br }}
+        <span class="text-muted">
+          {% if descontos_pct is not none %}
+            ({{ '%.2f' | format(descontos_pct) | replace('.', ',') }}%)
+          {% else %}
+            (—)
+          {% endif %}
+        </span>
+      </li>
+      <li>
+        <strong>Valor Líquido:</strong>
+        {{ totals['liquido'] | currency_br }}
+        <span class="text-muted">
+          {% if liquido_pct is not none %}
+            ({{ '%.2f' | format(liquido_pct) | replace('.', ',') }}%)
+          {% else %}
+            (—)
+          {% endif %}
+        </span>
+      </li>
     </ul>
   {% endif %}
 {% elif selected_key %}
