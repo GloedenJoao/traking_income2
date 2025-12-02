@@ -458,36 +458,48 @@ async def dashboard_totais(request: Request):
         )
         fig_history = go.Figure(data=traces, layout=layout)
 
-        latest = series[-1]
-        latest_month = latest['mes_key']
-        latest_totals = get_monthly_totals_by_month(latest_month)
-        bar_labels = []
-        bar_traces = []
-        bar_data_map = {
-            'proventos': ('Proventos', []),
-            'descontos': ('Descontos', []),
-            'liquido': ('Líquido', []),
+        def build_hover_text(label: str, values: List[float]):
+            hover_texts = []
+            previous = None
+            for month, value in zip(months, values):
+                delta_pct = None
+                if previous not in (None, 0):
+                    delta_pct = ((value - previous) / previous) * 100
+                delta_text = '—' if delta_pct is None else f"{delta_pct:+.2f}%".replace('.', ',')
+                hover_texts.append(
+                    f"{label} em {month}: {format_currency_brl(value)}<br>Variação mensal: {delta_text}"
+                )
+                previous = value
+            return hover_texts
+
+        band_traces = []
+        band_series_map = {
+            'proventos': ('Proventos', prov_series, 'tozeroy'),
+            'descontos': ('Descontos', desc_series, 'tonexty'),
+            'liquido': ('Líquido', liq_series, 'tonexty'),
         }
-
-        for row in latest_totals:
-            bar_labels.append(row['file_name'])
-            bar_data_map['proventos'][1].append(row['total_proventos'] or 0)
-            bar_data_map['descontos'][1].append(row['total_descontos'] or 0)
-            bar_data_map['liquido'][1].append(row['liquido'] or 0)
-
-        for key, (label, values) in bar_data_map.items():
+        for key, (label, values, fill_mode) in band_series_map.items():
             if key in selected_types:
-                bar_traces.append(go.Bar(x=bar_labels, y=values, name=label))
+                band_traces.append(
+                    go.Scatter(
+                        x=months,
+                        y=values,
+                        mode='lines',
+                        name=f"Faixa {label}",
+                        fill=fill_mode,
+                        hovertext=build_hover_text(label, values),
+                        hoverinfo='text',
+                    )
+                )
 
-        bar_layout = go.Layout(
-            title=f'Composição em {latest["mes_ano"]}',
-            barmode='group',
-            xaxis={'title': 'Arquivo'},
+        band_layout = go.Layout(
+            title='Faixas acumuladas por período',
+            xaxis={'title': 'Mês'},
             yaxis={'title': 'Valor (R$)'},
         )
-        fig_latest = go.Figure(data=bar_traces, layout=bar_layout)
+        fig_bands = go.Figure(data=band_traces, layout=band_layout)
 
-        graphs = [fig_history, fig_latest]
+        graphs = [fig_history, fig_bands]
         graphs_json = json.dumps(graphs, cls=plotly.utils.PlotlyJSONEncoder)
     return templates.TemplateResponse(
         'dashboard.html',
