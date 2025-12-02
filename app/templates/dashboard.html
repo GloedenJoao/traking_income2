@@ -3,7 +3,7 @@
 <h2>Dashboard</h2>
 
 <form class="mb-4" method="get" action="{{ request.url_for('dashboard_totais') }}">
-  <div class="form-row">
+  <div class="form-row align-items-end">
     <div class="form-group col-md-3">
       <label for="start">Início (ano/mês)</label>
       <input type="month" class="form-control" id="start" name="start" value="{{ start_month }}">
@@ -35,11 +35,42 @@
       </div>
       <small class="form-text text-muted">Selecione um ou mais tipos usando o menu acima.</small>
     </div>
-    <div class="form-group col-md-2 align-self-end">
-      <button type="submit" class="btn btn-primary btn-block">Aplicar filtros</button>
+    <div class="form-group col-md-1">
+      <button type="submit" class="btn btn-primary btn-block">Aplicar</button>
+    </div>
+    <div class="form-group col-md-1">
+      <a class="btn btn-outline-secondary btn-block" href="{{ request.url_for('dashboard_totais') }}">Resetar</a>
     </div>
   </div>
 </form>
+
+{% if latest_summary %}
+<div class="row mb-4">
+  {% for metric in latest_summary.metrics %}
+    <div class="col-md-4 mb-3">
+      <div class="summary-card h-100">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div>
+            <p class="small text-muted mb-0">{{ metric.label }} - {{ latest_summary.month }}</p>
+            {% if latest_summary.previous_month %}
+              <p class="small text-muted mb-0">vs {{ latest_summary.previous_month }}</p>
+            {% else %}
+              <p class="small text-muted mb-0">Sem mês anterior</p>
+            {% endif %}
+          </div>
+          {% if metric.delta is not none %}
+            <span class="variation-badge {{ 'variation-positive' if metric.delta >= 0 else 'variation-negative' }}">{{ '{:+.2f}%'.format(metric.delta).replace('.', ',') }}</span>
+          {% else %}
+            <span class="variation-badge variation-neutral">—</span>
+          {% endif %}
+        </div>
+        <h5 class="mb-1">{{ metric.label }}</h5>
+        <p class="h4 mb-0">{{ metric.value | currency_br }}</p>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 <script>
   (function() {
@@ -99,6 +130,41 @@
       Plotly.newPlot(divId, fig['data'], fig['layout']);
     }
   </script>
+  {% if band_table %}
+    <h4 class="mt-4">Tabela das faixas</h4>
+    <div class="table-responsive">
+      <table class="table table-custom table-striped table-hover">
+        <thead>
+          <tr>
+            <th>Mês</th>
+            {% set label_map = {'proventos': 'Proventos', 'descontos': 'Descontos', 'liquido': 'Líquido'} %}
+            {% for type_key in selected_types %}
+              <th>{{ label_map[type_key] }}</th>
+              <th>Variação</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in band_table %}
+            <tr>
+              <td>{{ row.mes_ano }}</td>
+              {% for type_key in selected_types %}
+                <td>{{ row.values[type_key] | currency_br }}</td>
+                {% set delta = row.deltas[type_key] %}
+                <td>
+                  {% if delta is not none %}
+                    <span class="variation-text {{ 'variation-positive' if delta >= 0 else 'variation-negative' }}">{{ '{:+.2f}%'.format(delta).replace('.', ',') }}</span>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
 {% else %}
   <p>Nenhum dado disponível para exibir o dashboard.</p>
 {% endif %}

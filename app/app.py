@@ -434,7 +434,17 @@ async def dashboard_totais(request: Request):
         start_month, end_month = end_month, start_month
 
     series = get_aggregated_series(start_key=start_key, end_key=end_key)
+    def compute_delta(current: Optional[float], previous: Optional[float]):
+        if previous in (None, 0, 0.0) or current is None:
+            return None
+        try:
+            return ((current - previous) / previous) * 100
+        except ZeroDivisionError:
+            return None
+
     graphs_json = None
+    latest_summary = None
+    band_table = []
     if series:
         months = [row['mes_ano'] for row in series]
         prov_series = [row['total_proventos'] for row in series]
@@ -462,9 +472,7 @@ async def dashboard_totais(request: Request):
             hover_texts = []
             previous = None
             for month, value in zip(months, values):
-                delta_pct = None
-                if previous not in (None, 0):
-                    delta_pct = ((value - previous) / previous) * 100
+                delta_pct = compute_delta(value, previous)
                 delta_text = '—' if delta_pct is None else f"{delta_pct:+.2f}%".replace('.', ',')
                 hover_texts.append(
                     f"{label} em {month}: {format_currency_brl(value)}<br>Variação mensal: {delta_text}"
@@ -501,6 +509,57 @@ async def dashboard_totais(request: Request):
 
         graphs = [fig_history, fig_bands]
         graphs_json = json.dumps(graphs, cls=plotly.utils.PlotlyJSONEncoder)
+
+        latest = series[-1]
+        previous = series[-2] if len(series) > 1 else None
+        latest_summary = {
+            "month": latest['mes_ano'],
+            "previous_month": previous['mes_ano'] if previous else None,
+            "metrics": [
+                {
+                    "key": "total_proventos",
+                    "label": "Total",
+                    "value": latest['total_proventos'],
+                    "delta": compute_delta(latest['total_proventos'], previous['total_proventos'] if previous else None),
+                },
+                {
+                    "key": "total_descontos",
+                    "label": "Descontos",
+                    "value": latest['total_descontos'],
+                    "delta": compute_delta(latest['total_descontos'], previous['total_descontos'] if previous else None),
+                },
+                {
+                    "key": "liquido",
+                    "label": "Líquido",
+                    "value": latest['liquido'],
+                    "delta": compute_delta(latest['liquido'], previous['liquido'] if previous else None),
+                },
+            ],
+        }
+
+        previous_values = None
+        for index, row in enumerate(series):
+            current_values = {
+                'proventos': row['total_proventos'],
+                'descontos': row['total_descontos'],
+                'liquido': row['liquido'],
+            }
+            deltas = {}
+            if previous_values:
+                for key, current in current_values.items():
+                    deltas[key] = compute_delta(current, previous_values.get(key))
+            else:
+                for key in current_values:
+                    deltas[key] = None
+
+            band_table.append(
+                {
+                    'mes_ano': row['mes_ano'],
+                    'values': current_values,
+                    'deltas': deltas,
+                }
+            )
+            previous_values = current_values
     return templates.TemplateResponse(
         'dashboard.html',
         {
@@ -509,6 +568,8 @@ async def dashboard_totais(request: Request):
             "start_month": start_month,
             "end_month": end_month,
             "selected_types": selected_types,
+            "latest_summary": latest_summary,
+            "band_table": band_table,
         },
     )
 
