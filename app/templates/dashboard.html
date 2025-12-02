@@ -2,6 +2,31 @@
 {% block content %}
 <h2>Dashboard</h2>
 
+<form class="mb-4" method="get" action="{{ request.url_for('dashboard_totais') }}">
+  <div class="form-row">
+    <div class="form-group col-md-3">
+      <label for="start">Início (ano/mês)</label>
+      <input type="month" class="form-control" id="start" name="start" value="{{ start_month }}">
+    </div>
+    <div class="form-group col-md-3">
+      <label for="end">Fim (ano/mês)</label>
+      <input type="month" class="form-control" id="end" name="end" value="{{ end_month }}">
+    </div>
+    <div class="form-group col-md-4">
+      <label for="types">Tipos</label>
+      <select multiple class="form-control" id="types" name="types">
+        <option value="proventos" {% if 'proventos' in selected_types %}selected{% endif %}>Proventos</option>
+        <option value="descontos" {% if 'descontos' in selected_types %}selected{% endif %}>Descontos</option>
+        <option value="liquido" {% if 'liquido' in selected_types %}selected{% endif %}>Líquido</option>
+      </select>
+      <small class="form-text text-muted">Segure Ctrl/Cmd para selecionar múltiplos tipos.</small>
+    </div>
+    <div class="form-group col-md-2 align-self-end">
+      <button type="submit" class="btn btn-primary btn-block">Aplicar filtros</button>
+    </div>
+  </div>
+</form>
+
 {% if graphs_json %}
   <div id="graphs"></div>
   <!-- Plotly JS via CDN -->
