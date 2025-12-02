@@ -5,3 +5,4 @@ uvicorn
 pymupdf
 plotly
 jinja2
+itsdangerous

@@ -1,6 +1,9 @@
 {% extends 'layout.html' %}
 {% block content %}
 <h2>Consulta de demonstrativos</h2>
+{% if current_user %}
+  <p class="text-muted">Usuário atual: <strong>{{ current_user['username'] }}</strong> ({{ current_user['role'] }}).</p>
+{% endif %}
 <form method="get" action="{{ request.url_for('consulta_get') }}" class="form-inline mb-3">
   <label class="mr-2" for="mes_key">Selecione o mês:</label>
   <select class="form-control mr-2" name="mes_key" id="mes_key" required>
@@ -9,6 +12,15 @@
       <option value="{{ key }}" {% if selected_key == key %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
   </select>
+  {% if current_user and current_user['role'] == 'admin' and users %}
+    <label class="mr-2 ml-2" for="user_id">Usuário:</label>
+    <select class="form-control mr-2" name="user_id" id="user_id">
+      <option value="">Todos</option>
+      {% for user in users %}
+        <option value="{{ user['id'] }}" {% if selected_user_id == user['id'] %}selected{% endif %}>{{ user['username'] }} ({{ user['role'] }})</option>
+      {% endfor %}
+    </select>
+  {% endif %}
   <button type="submit" class="btn btn-primary">Consultar</button>
 </form>
 

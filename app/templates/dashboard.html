@@ -2,6 +2,10 @@
 {% block content %}
 <h2>Dashboard</h2>
 
+{% if current_user %}
+  <p class="text-muted">Usuário atual: <strong>{{ current_user['username'] }}</strong> ({{ current_user['role'] }}).</p>
+{% endif %}
+
 <style>
   .band-table-variation {
     font-weight: 600;
@@ -56,6 +60,17 @@
         </div>
       </div>
     </div>
+    {% if current_user and current_user['role'] == 'admin' and users %}
+      <div class="form-group col-12 col-md-3 mb-3 mb-md-0">
+        <label for="user_id">Usuário</label>
+        <select class="form-control" id="user_id" name="user_id">
+          <option value="">Todos</option>
+          {% for user in users %}
+            <option value="{{ user['id'] }}" {% if selected_user_id == user['id'] %}selected{% endif %}>{{ user['username'] }} ({{ user['role'] }})</option>
+          {% endfor %}
+        </select>
+      </div>
+    {% endif %}
     <div class="form-group col-12 col-md-2 mt-2 mt-md-0 mb-0">
       <div class="d-flex flex-wrap flex-md-nowrap align-items-center">
         <button type="submit" class="btn btn-primary mr-md-2 mb-2 mb-md-0 flex-fill">Aplicar filtros</button>
@@ -137,6 +152,7 @@
     var clearFiltersButton = document.getElementById('clearFiltersButton');
     var startInput = document.getElementById('start');
     var endInput = document.getElementById('end');
+    var userSelect = document.getElementById('user_id');
     var filtersForm = document.getElementById('filtersForm');
 
     if (!dropdownButton || !dropdownMenu) {
@@ -171,7 +187,7 @@
       checkbox.addEventListener('change', updateDropdownLabel);
     });
 
-    if (clearFiltersButton) {
+        if (clearFiltersButton) {
       clearFiltersButton.addEventListener('click', function() {
         if (startInput) {
           startInput.value = '';
@@ -179,6 +195,10 @@
 
         if (endInput) {
           endInput.value = '';
+        }
+
+        if (userSelect) {
+          userSelect.value = '';
         }
 
         checkboxes.forEach(function(checkbox) {

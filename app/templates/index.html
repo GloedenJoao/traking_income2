@@ -5,6 +5,21 @@
 {% if msg %}
   <div class="alert alert-info">{{ msg }}</div>
 {% endif %}
+{% if current_user %}
+  <p class="text-muted">Você está autenticado como <strong>{{ current_user['username'] }}</strong> ({{ current_user['role'] }}).</p>
+{% endif %}
+{% if current_user and current_user['role'] == 'admin' and users %}
+  <form method="get" action="{{ request.url_for('index') }}" class="form-inline mb-3">
+    <label class="mr-2" for="user_id">Filtrar por usuário:</label>
+    <select class="form-control mr-2" id="user_id" name="user_id">
+      <option value="">Todos</option>
+      {% for user in users %}
+        <option value="{{ user['id'] }}" {% if selected_user_id == user['id'] %}selected{% endif %}>{{ user['username'] }} ({{ user['role'] }})</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-outline-secondary">Aplicar</button>
+  </form>
+{% endif %}
 <form method="post" action="{{ request.url_for('upload_file') }}{% if confirm %}?confirm=1{% endif %}" enctype="multipart/form-data" class="mb-4">
   <div class="form-group">
     <div class="custom-file">
@@ -31,9 +46,12 @@
     <tbody>
       {% for file in files %}
       <tr>
-        <td><a href="{{ '/uploads/' + file }}" target="_blank">{{ file }}</a></td>
+        <td><a href="{{ request.url_for('download_file', filename=file) }}" target="_blank">{{ file }}</a></td>
         <td>
           <form action="{{ request.url_for('delete_file', filename=file) }}" method="post" onsubmit="return confirm('Tem certeza que deseja deletar este arquivo?');">
+            {% if selected_user_id %}
+              <input type="hidden" name="user_id" value="{{ selected_user_id }}">
+            {% endif %}
             <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
           </form>
         </td>
