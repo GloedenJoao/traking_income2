@@ -207,19 +207,32 @@ def get_totals_by_month(mes_key: str):
     return row
 
 
-def get_aggregated_series():
+def get_aggregated_series(start_key: Optional[str] = None, end_key: Optional[str] = None):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        '''SELECT mes_key, mes_ano,
-                  SUM(total_proventos) AS total_proventos,
-                  SUM(total_descontos) AS total_descontos,
-                  SUM(liquido) AS liquido
-           FROM monthly_totals
-           WHERE mes_key IS NOT NULL
-           GROUP BY mes_key, mes_ano
-           ORDER BY mes_key'''
-    )
+
+    conditions = ["mes_key IS NOT NULL"]
+    params: List[str] = []
+    if start_key:
+        conditions.append("mes_key >= ?")
+        params.append(start_key)
+    if end_key:
+        conditions.append("mes_key <= ?")
+        params.append(end_key)
+
+    where_clause = " AND ".join(conditions)
+    query = f'''
+        SELECT mes_key, mes_ano,
+               SUM(total_proventos) AS total_proventos,
+               SUM(total_descontos) AS total_descontos,
+               SUM(liquido) AS liquido
+        FROM monthly_totals
+        WHERE {where_clause}
+        GROUP BY mes_key, mes_ano
+        ORDER BY mes_key
+    '''
+
+    cur.execute(query, params)
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -396,36 +409,96 @@ async def consulta_get(request: Request):
 
 @app.get("/dashboard_totais", response_class=HTMLResponse)
 async def dashboard_totais(request: Request):
-    series = get_aggregated_series()
+    months_available = get_months_available()
+    start_month = request.query_params.get('start') if request.query_params else None
+    end_month = request.query_params.get('end') if request.query_params else None
+    selected_types = request.query_params.getlist('types') if request.query_params else []
+
+    # Se nenhum tipo for selecionado, consideramos todos como padrão
+    if not selected_types:
+        selected_types = ['proventos', 'descontos', 'liquido']
+
+    if months_available:
+        sorted_months = sorted(months_available, key=lambda m: m[0])
+        default_start = sorted_months[0][0][:7]
+        default_end = sorted_months[-1][0][:7]
+        start_month = start_month or default_start
+        end_month = end_month or default_end
+
+    start_key = f"{start_month}-01" if start_month else None
+    end_key = f"{end_month}-01" if end_month else None
+
+    # Garante que o intervalo esteja ordenado
+    if start_key and end_key and start_key > end_key:
+        start_key, end_key = end_key, start_key
+        start_month, end_month = end_month, start_month
+
+    series = get_aggregated_series(start_key=start_key, end_key=end_key)
     graphs_json = None
     if series:
         months = [row['mes_ano'] for row in series]
         prov_series = [row['total_proventos'] for row in series]
         desc_series = [row['total_descontos'] for row in series]
         liq_series = [row['liquido'] for row in series]
+
         traces = []
-        traces.append(go.Scatter(x=months, y=prov_series, mode='lines+markers', name='Proventos'))
-        traces.append(go.Scatter(x=months, y=desc_series, mode='lines+markers', name='Descontos'))
-        traces.append(go.Scatter(x=months, y=liq_series, mode='lines+markers', name='Líquido'))
-        layout = go.Layout(title='Série histórica de proventos, descontos e líquido', xaxis={'title': 'Mês'}, yaxis={'title': 'Valor (R$)'})
+        series_map = {
+            'proventos': ('Proventos', prov_series),
+            'descontos': ('Descontos', desc_series),
+            'liquido': ('Líquido', liq_series),
+        }
+        for key, (label, values) in series_map.items():
+            if key in selected_types:
+                traces.append(go.Scatter(x=months, y=values, mode='lines+markers', name=label))
+
+        layout = go.Layout(
+            title='Série histórica de proventos, descontos e líquido',
+            xaxis={'title': 'Mês'},
+            yaxis={'title': 'Valor (R$)'},
+        )
         fig_history = go.Figure(data=traces, layout=layout)
+
         latest = series[-1]
         latest_month = latest['mes_key']
         latest_totals = get_monthly_totals_by_month(latest_month)
         bar_labels = []
-        bar_prov = []
-        bar_descs = []
+        bar_traces = []
+        bar_data_map = {
+            'proventos': ('Proventos', []),
+            'descontos': ('Descontos', []),
+            'liquido': ('Líquido', []),
+        }
+
         for row in latest_totals:
             bar_labels.append(row['file_name'])
-            bar_prov.append(row['total_proventos'] or 0)
-            bar_descs.append(row['total_descontos'] or 0)
-        bar_trace1 = go.Bar(x=bar_labels, y=bar_prov, name='Proventos')
-        bar_trace2 = go.Bar(x=bar_labels, y=bar_descs, name='Descontos')
-        bar_layout = go.Layout(title=f'Composição de proventos e descontos em {latest["mes_ano"]}', barmode='group', xaxis={'title':'Arquivo'}, yaxis={'title':'Valor (R$)'})
-        fig_latest = go.Figure(data=[bar_trace1, bar_trace2], layout=bar_layout)
+            bar_data_map['proventos'][1].append(row['total_proventos'] or 0)
+            bar_data_map['descontos'][1].append(row['total_descontos'] or 0)
+            bar_data_map['liquido'][1].append(row['liquido'] or 0)
+
+        for key, (label, values) in bar_data_map.items():
+            if key in selected_types:
+                bar_traces.append(go.Bar(x=bar_labels, y=values, name=label))
+
+        bar_layout = go.Layout(
+            title=f'Composição em {latest["mes_ano"]}',
+            barmode='group',
+            xaxis={'title': 'Arquivo'},
+            yaxis={'title': 'Valor (R$)'},
+        )
+        fig_latest = go.Figure(data=bar_traces, layout=bar_layout)
+
         graphs = [fig_history, fig_latest]
         graphs_json = json.dumps(graphs, cls=plotly.utils.PlotlyJSONEncoder)
-    return templates.TemplateResponse('dashboard.html', {"request": request, "graphs_json": graphs_json})
+    return templates.TemplateResponse(
+        'dashboard.html',
+        {
+            "request": request,
+            "graphs_json": graphs_json,
+            "start_month": start_month,
+            "end_month": end_month,
+            "selected_types": selected_types,
+        },
+    )
 
 
 @app.get("/download/{filename:path}")
