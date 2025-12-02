@@ -201,6 +201,37 @@
       .custom-control-input:focus ~ .custom-control-label::before {
         box-shadow: 0 0 0 0.2rem rgba(100, 181, 246, 0.25);
       }
+
+      .btn-outline-secondary {
+        color: var(--text-color);
+        border-color: var(--border-color);
+      }
+
+      .btn-outline-secondary:hover,
+      .btn-outline-secondary:focus,
+      .btn-outline-secondary:active,
+      .btn-outline-secondary:not(:disabled):not(.disabled).active,
+      .btn-outline-secondary:not(:disabled):not(.disabled):active {
+        color: var(--accent-contrast);
+        background-color: var(--accent);
+        border-color: var(--accent);
+      }
+
+      .dropdown-menu {
+        background-color: var(--surface-color);
+        color: var(--text-color);
+        border: 1px solid var(--border-color);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.05);
+      }
+
+      .dropdown-menu .form-check-label {
+        color: var(--text-color);
+      }
+
+      .dropdown-menu .form-check-input:checked {
+        background-color: var(--accent);
+        border-color: var(--accent);
+      }
     </style>
   </head>
   <body>
