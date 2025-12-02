@@ -31,6 +31,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Extensões permitidas
 ALLOWED_EXTENSIONS = {'pdf'}
+ALLOWED_FILE_TYPES = {'FolMen', 'Outros', 'PagPLR'}
 
 app = FastAPI()
 
@@ -94,6 +95,20 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
 
 def allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def extract_statement_type(filename: str) -> Optional[str]:
+    """Extrai o tipo do demonstrativo a partir do prefixo do arquivo.
+
+    O tipo é definido pelo texto antes do primeiro ``_`` e deve ser um dos
+    valores em ``ALLOWED_FILE_TYPES``.
+    """
+
+    base_name = os.path.basename(filename)
+    prefix = base_name.split('_', 1)[0]
+    # Caso o arquivo não tenha ``_`` usamos apenas o nome antes da extensão
+    prefix = prefix.split('.', 1)[0]
+    return prefix if prefix in ALLOWED_FILE_TYPES else None
 
 
 def get_db_connection():
@@ -200,6 +215,13 @@ def get_files_by_month(mes_key: Optional[str]) -> List[str]:
     rows = cur.fetchall()
     conn.close()
     return [row['file_name'] for row in rows]
+
+
+def get_files_by_month_with_type(mes_key: Optional[str]) -> List[Tuple[str, Optional[str]]]:
+    """Retorna pares (nome, tipo) para arquivos já cadastrados em ``mes_key``."""
+
+    files = get_files_by_month(mes_key)
+    return [(fname, extract_statement_type(fname)) for fname in files]
 
 
 def get_months_available() -> List[Tuple[str, str]]:
@@ -366,6 +388,12 @@ async def upload_file(request: Request):
             continue
 
         secure_name = file_name.replace('/', '_')
+        statement_type = extract_statement_type(secure_name)
+        if not statement_type:
+            messages.append(
+                f'Nome de arquivo inválido para {secure_name}. Use os prefixos FolMen, Outros ou PagPLR antes do primeiro "_".'
+            )
+            continue
         save_path = os.path.join(UPLOAD_FOLDER, secure_name)
         temp_path = save_path + '.upload'
         with open(temp_path, 'wb') as f:
@@ -378,18 +406,21 @@ async def upload_file(request: Request):
             continue
 
         mes_key = parsed.get('mes_key')
-        existing_month_files = get_files_by_month(mes_key)
+        existing_month_files = get_files_by_month_with_type(mes_key)
+        existing_types = {ftype: fname for fname, ftype in existing_month_files if ftype}
         duplicate_name = os.path.exists(save_path)
-        duplicate_month = bool(existing_month_files)
+        duplicate_type = bool(mes_key and statement_type in existing_types)
 
-        if (duplicate_name or duplicate_month) and not confirm_flag:
+        if (duplicate_name or duplicate_type) and not confirm_flag:
             os.remove(temp_path)
             details = []
             if duplicate_name:
                 details.append(f'O arquivo {secure_name} já existe.')
-            if duplicate_month:
+            if duplicate_type:
+                conflicting = existing_types.get(statement_type)
                 details.append(
-                    f'O mês {parsed.get("mes_ano", mes_key)} já está cadastrado (arquivos: {", ".join(existing_month_files)}).'
+                    f'Já existe um arquivo do tipo {statement_type} para {parsed.get("mes_ano", mes_key)} '
+                    f'(arquivo: {conflicting}).'
                 )
             messages.append(' '.join(details) + ' Confirme a substituição marcando a opção no formulário e envie novamente.')
             reconfirm_needed = True
@@ -397,10 +428,10 @@ async def upload_file(request: Request):
 
         if duplicate_name:
             remove_statement(secure_name)
-        if duplicate_month:
-            for fname in existing_month_files:
-                if fname != secure_name:
-                    remove_statement(fname)
+        if duplicate_type:
+            conflicting = existing_types.get(statement_type)
+            if conflicting and conflicting != secure_name:
+                remove_statement(conflicting)
 
         os.replace(temp_path, save_path)
         insert_statement(secure_name, parsed)
