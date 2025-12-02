@@ -225,6 +225,21 @@ def get_aggregated_series():
     return rows
 
 
+def get_monthly_totals_by_month(mes_key: str):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        '''SELECT file_name, total_proventos, total_descontos, liquido
+           FROM monthly_totals
+           WHERE mes_key = ?
+           ORDER BY file_name''',
+        (mes_key,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
 @app.on_event("startup")
 def startup_event():
     # Inicializa o banco ao iniciar a aplicação
@@ -379,8 +394,8 @@ async def consulta_get(request: Request):
 
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
+@app.get("/dashboard_totais", response_class=HTMLResponse)
+async def dashboard_totais(request: Request):
     series = get_aggregated_series()
     graphs_json = None
     if series:
@@ -396,17 +411,17 @@ async def dashboard(request: Request):
         fig_history = go.Figure(data=traces, layout=layout)
         latest = series[-1]
         latest_month = latest['mes_key']
-        latest_items = get_items_by_month(latest_month)
-        desc_labels = []
-        desc_prov = []
-        desc_descs = []
-        for item in latest_items:
-            desc_labels.append(item['descricao'])
-            desc_prov.append(item['proventos'] or 0)
-            desc_descs.append(item['descontos'] or 0)
-        bar_trace1 = go.Bar(x=desc_labels, y=desc_prov, name='Proventos')
-        bar_trace2 = go.Bar(x=desc_labels, y=desc_descs, name='Descontos')
-        bar_layout = go.Layout(title=f'Composição de proventos e descontos em {latest["mes_ano"]}', barmode='group', xaxis={'title':'Descrição'}, yaxis={'title':'Valor (R$)'})
+        latest_totals = get_monthly_totals_by_month(latest_month)
+        bar_labels = []
+        bar_prov = []
+        bar_descs = []
+        for row in latest_totals:
+            bar_labels.append(row['file_name'])
+            bar_prov.append(row['total_proventos'] or 0)
+            bar_descs.append(row['total_descontos'] or 0)
+        bar_trace1 = go.Bar(x=bar_labels, y=bar_prov, name='Proventos')
+        bar_trace2 = go.Bar(x=bar_labels, y=bar_descs, name='Descontos')
+        bar_layout = go.Layout(title=f'Composição de proventos e descontos em {latest["mes_ano"]}', barmode='group', xaxis={'title':'Arquivo'}, yaxis={'title':'Valor (R$)'})
         fig_latest = go.Figure(data=[bar_trace1, bar_trace2], layout=bar_layout)
         graphs = [fig_history, fig_latest]
         graphs_json = json.dumps(graphs, cls=plotly.utils.PlotlyJSONEncoder)
