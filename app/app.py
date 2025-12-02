@@ -520,36 +520,31 @@ async def dashboard_totais(request: Request):
         desc_series = []
         liq_series = []
 
-        prev_prov = None
-        prev_desc = None
-        prev_liq = None
-
         for row in series:
             month_label = row['mes_ano']
-            total_prov = row['total_proventos']
-            total_desc = row['total_descontos']
-            total_liq = row['liquido']
-
             months.append(month_label)
-            prov_series.append(total_prov)
-            desc_series.append(total_desc)
-            liq_series.append(total_liq)
+            prov_series.append(row['total_proventos'])
+            desc_series.append(row['total_descontos'])
+            liq_series.append(row['liquido'])
+
+        reversed_series = list(reversed(series))
+        for idx, row in enumerate(reversed_series):
+            previous_row = reversed_series[idx + 1] if idx + 1 < len(reversed_series) else None
+            prev_prov = previous_row['total_proventos'] if previous_row else None
+            prev_desc = previous_row['total_descontos'] if previous_row else None
+            prev_liq = previous_row['liquido'] if previous_row else None
 
             band_table_rows.append(
                 {
-                    "mes_ano": month_label,
-                    "proventos": total_prov,
-                    "descontos": total_desc,
-                    "liquido": total_liq,
-                    "var_proventos": calculate_variation(total_prov, prev_prov),
-                    "var_descontos": calculate_variation(total_desc, prev_desc),
-                    "var_liquido": calculate_variation(total_liq, prev_liq),
+                    "mes_ano": row['mes_ano'],
+                    "proventos": row['total_proventos'],
+                    "descontos": row['total_descontos'],
+                    "liquido": row['liquido'],
+                    "var_proventos": calculate_variation(row['total_proventos'], prev_prov),
+                    "var_descontos": calculate_variation(row['total_descontos'], prev_desc),
+                    "var_liquido": calculate_variation(row['liquido'], prev_liq),
                 }
             )
-
-            prev_prov = total_prov
-            prev_desc = total_desc
-            prev_liq = total_liq
 
         traces = []
         series_map = {
@@ -570,16 +565,15 @@ async def dashboard_totais(request: Request):
 
         def build_hover_text(label: str, values: List[float]):
             hover_texts = []
-            previous = None
-            for month, value in zip(months, values):
+            for idx, (month, value) in enumerate(zip(months, values)):
+                previous_value = values[idx + 1] if idx + 1 < len(values) else None
                 delta_pct = None
-                if previous not in (None, 0):
-                    delta_pct = ((value - previous) / previous) * 100
+                if previous_value not in (None, 0):
+                    delta_pct = ((value - previous_value) / previous_value) * 100
                 delta_text = '—' if delta_pct is None else f"{delta_pct:+.2f}%".replace('.', ',')
                 hover_texts.append(
                     f"{label} em {month}: {format_currency_brl(value)}<br>Variação mensal: {delta_text}"
                 )
-                previous = value
             return hover_texts
 
         band_traces = []
