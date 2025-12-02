@@ -2,19 +2,19 @@
 {% block content %}
 <h2>Dashboard</h2>
 
-<form class="mb-4" method="get" action="{{ request.url_for('dashboard_totais') }}">
-  <div class="form-row">
-    <div class="form-group col-md-3">
+<form class="mb-4" id="filtersForm" method="get" action="{{ request.url_for('dashboard_totais') }}">
+  <div class="form-row align-items-end">
+    <div class="form-group col-12 col-md-3 mb-3 mb-md-0">
       <label for="start">Início (ano/mês)</label>
       <input type="month" class="form-control" id="start" name="start" value="{{ start_month }}">
     </div>
-    <div class="form-group col-md-3">
+    <div class="form-group col-12 col-md-3 mb-3 mb-md-0">
       <label for="end">Fim (ano/mês)</label>
       <input type="month" class="form-control" id="end" name="end" value="{{ end_month }}">
     </div>
-    <div class="form-group col-md-4">
+    <div class="form-group col-12 col-md-4 mb-3 mb-md-0">
       <label for="typesDropdownButton">Tipos</label>
-      <div class="btn-group w-100">
+      <div class="dropdown w-100">
         <button type="button" class="btn btn-outline-secondary dropdown-toggle w-100 text-left" id="typesDropdownButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
           Selecionar tipos
         </button>
@@ -33,10 +33,12 @@
           </div>
         </div>
       </div>
-      <small class="form-text text-muted">Selecione um ou mais tipos usando o menu acima.</small>
     </div>
-    <div class="form-group col-md-2 align-self-end">
-      <button type="submit" class="btn btn-primary btn-block">Aplicar filtros</button>
+    <div class="form-group col-12 col-md-2 mt-2 mt-md-0 mb-0">
+      <div class="d-flex flex-wrap flex-md-nowrap align-items-center">
+        <button type="submit" class="btn btn-primary mr-md-2 mb-2 mb-md-0 flex-fill">Aplicar filtros</button>
+        <button type="button" id="clearFiltersButton" class="btn btn-outline-secondary flex-fill">Limpar filtros</button>
+      </div>
     </div>
   </div>
 </form>
@@ -45,6 +47,10 @@
   (function() {
     var dropdownButton = document.getElementById('typesDropdownButton');
     var dropdownMenu = document.getElementById('typesDropdownMenu');
+    var clearFiltersButton = document.getElementById('clearFiltersButton');
+    var startInput = document.getElementById('start');
+    var endInput = document.getElementById('end');
+    var filtersForm = document.getElementById('filtersForm');
 
     if (!dropdownButton || !dropdownMenu) {
       return;
@@ -77,6 +83,28 @@
     checkboxes.forEach(function(checkbox) {
       checkbox.addEventListener('change', updateDropdownLabel);
     });
+
+    if (clearFiltersButton) {
+      clearFiltersButton.addEventListener('click', function() {
+        if (startInput) {
+          startInput.value = '';
+        }
+
+        if (endInput) {
+          endInput.value = '';
+        }
+
+        checkboxes.forEach(function(checkbox) {
+          checkbox.checked = false;
+        });
+
+        updateDropdownLabel();
+
+        if (filtersForm) {
+          filtersForm.submit();
+        }
+      });
+    }
 
     updateDropdownLabel();
   })();
