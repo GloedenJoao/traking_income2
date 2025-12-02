@@ -73,6 +73,21 @@ def calculate_percentage(part: Optional[float], total: Optional[float]) -> Optio
         return None
     return (part_value / total_value) * 100
 
+
+def calculate_variation(current: Optional[float], previous: Optional[float]) -> Optional[float]:
+    """Calcula a variação percentual entre dois valores, retornando ``None`` quando não calculável."""
+
+    if previous in (None, 0) or current is None:
+        return None
+    try:
+        current_value = float(current)
+        previous_value = float(previous)
+    except (TypeError, ValueError):
+        return None
+    if previous_value == 0:
+        return None
+    return ((current_value - previous_value) / previous_value) * 100
+
 # Monta diretório de uploads como estático para servir PDFs
 app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
 
@@ -468,8 +483,37 @@ async def dashboard_totais(request: Request):
         start_month, end_month = end_month, start_month
 
     series = get_aggregated_series(start_key=start_key, end_key=end_key)
+    last_month = None
+    prev_month = None
+    variations = {
+        "total_proventos": None,
+        "total_descontos": None,
+        "liquido": None,
+    }
     graphs_json = None
     if series:
+        last_row = series[-1]
+        last_month = {
+            "mes_key": last_row["mes_key"],
+            "mes_ano": last_row["mes_ano"],
+            "total_proventos": last_row["total_proventos"],
+            "total_descontos": last_row["total_descontos"],
+            "liquido": last_row["liquido"],
+        }
+        if len(series) >= 2:
+            prev_row = series[-2]
+            prev_month = {
+                "mes_key": prev_row["mes_key"],
+                "mes_ano": prev_row["mes_ano"],
+                "total_proventos": prev_row["total_proventos"],
+                "total_descontos": prev_row["total_descontos"],
+                "liquido": prev_row["liquido"],
+            }
+            variations = {
+                "total_proventos": calculate_variation(last_row["total_proventos"], prev_row["total_proventos"]),
+                "total_descontos": calculate_variation(last_row["total_descontos"], prev_row["total_descontos"]),
+                "liquido": calculate_variation(last_row["liquido"], prev_row["liquido"]),
+            }
         months = [row['mes_ano'] for row in series]
         prov_series = [row['total_proventos'] for row in series]
         desc_series = [row['total_descontos'] for row in series]
@@ -543,6 +587,9 @@ async def dashboard_totais(request: Request):
             "start_month": start_month,
             "end_month": end_month,
             "selected_types": selected_types,
+            "last_month": last_month,
+            "prev_month": prev_month,
+            "variations": variations,
         },
     )
 
