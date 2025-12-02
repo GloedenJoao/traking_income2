@@ -9,12 +9,15 @@ este arquivo conforme necessário.
 
 import os
 import sqlite3
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.status import HTTP_303_SEE_OTHER
 
 import plotly.graph_objs as go
 import plotly
@@ -33,6 +36,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf'}
 
 app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=os.environ.get("SESSION_SECRET", "change-me"))
 
 # Configuração de templates Jinja2
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, 'templates'))
@@ -102,7 +106,55 @@ def get_db_connection():
     return conn
 
 
+def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
+    """Retorna o usuário da sessão ou ``None`` quando não autenticado."""
+
+    session_user = request.session.get("user") if hasattr(request, "session") else None
+    if isinstance(session_user, dict) and {"id", "username", "role"} <= session_user.keys():
+        return session_user
+    return None
+
+
+def validate_credentials(username: str, password: str) -> Tuple[bool, Optional[str]]:
+    """Valida tamanho de usuário e senha antes da autenticação."""
+
+    if not username or not password:
+        return False, "Informe usuário e senha."
+    if len(username) > 20:
+        return False, "O usuário deve ter até 20 caracteres."
+    if len(password) <= 1:
+        return False, "A senha deve ter mais de um caractere."
+    return True, None
+
+
+def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
+    """Busca usuário no banco de dados para credenciais fornecidas."""
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, username, password, role FROM users WHERE username = ? AND password = ?",
+        (username, password),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if row:
+        return {"id": row["id"], "username": row["username"], "role": row["role"]}
+    return None
+
+
+def require_authentication(request: Request) -> Optional[RedirectResponse]:
+    """Retorna redirecionamento para login quando não autenticado."""
+
+    if not get_current_user(request):
+        login_url = app.url_path_for("login_get")
+        return RedirectResponse(login_url, status_code=HTTP_303_SEE_OTHER)
+    return None
+
+
 def init_db():
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -132,11 +184,35 @@ def init_db():
         )
         '''
     )
+    cur.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user'
+        )
+        '''
+    )
+    cur.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS user_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_name TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+        '''
+    )
+    cur.execute(
+        """INSERT INTO users (username, password, role) VALUES (?, ?, ?)""",
+        ("admin", "admin", "admin"),
+    )
     conn.commit()
     conn.close()
 
 
-def insert_statement(file_name: str, parsed: dict) -> None:
+def insert_statement(file_name: str, parsed: dict, user_id: int) -> None:
     mes_key = parsed.get('mes_key')
     mes_ano = parsed.get('mes_ano')
     items = parsed.get('items', [])
@@ -166,8 +242,12 @@ def insert_statement(file_name: str, parsed: dict) -> None:
             mes_ano,
             totals.get('total_proventos'),
             totals.get('total_descontos'),
-            totals.get('liquido'),
+           totals.get('liquido'),
         )
+    )
+    cur.execute(
+        '''INSERT INTO user_files (file_name, user_id) VALUES (?,?)''',
+        (file_name, user_id),
     )
     conn.commit()
     conn.close()
@@ -178,6 +258,7 @@ def remove_statement(file_name: str) -> None:
     cur = conn.cursor()
     cur.execute('DELETE FROM item_view WHERE file_name = ?', (file_name,))
     cur.execute('DELETE FROM monthly_totals WHERE file_name = ?', (file_name,))
+    cur.execute('DELETE FROM user_files WHERE file_name = ?', (file_name,))
     conn.commit()
     conn.close()
     file_path = os.path.join(UPLOAD_FOLDER, file_name)
@@ -291,10 +372,53 @@ def startup_event():
     init_db()
 
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_get(request: Request, error: Optional[str] = None):
+    if get_current_user(request):
+        return RedirectResponse(app.url_path_for('index'), status_code=HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse('login.html', {"request": request, "error": error})
+
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_post(request: Request):
+    content_type = request.headers.get('content-type', '')
+    if 'application/x-www-form-urlencoded' not in content_type:
+        return templates.TemplateResponse(
+            'login.html', {"request": request, "error": 'Tipo de conteúdo inválido para login.'}
+        )
+
+    body = (await request.body()).decode(errors='ignore')
+    parsed_body = parse_qs(body)
+    username = parsed_body.get('username', [''])[0].strip()
+    password = parsed_body.get('password', [''])[0]
+
+    valid, error = validate_credentials(username, password)
+    if not valid:
+        return templates.TemplateResponse('login.html', {"request": request, "error": error})
+
+    user = authenticate_user(username, password)
+    if not user:
+        return templates.TemplateResponse('login.html', {"request": request, "error": 'Credenciais inválidas.'})
+
+    request.session['user'] = user
+    return RedirectResponse(app.url_path_for('index'), status_code=HTTP_303_SEE_OTHER)
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(app.url_path_for('login_get'), status_code=HTTP_303_SEE_OTHER)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, msg: Optional[str] = None, confirm: Optional[int] = None):
+    redirect = require_authentication(request)
+    if redirect:
+        return redirect
     files = get_uploaded_files()
-    return templates.TemplateResponse('index.html', {"request": request, "files": files, "msg": msg, "confirm": confirm})
+    return templates.TemplateResponse(
+        'index.html', {"request": request, "files": files, "msg": msg, "confirm": confirm}
+    )
 
 
 @app.post("/upload")
@@ -305,6 +429,10 @@ async def upload_file(request: Request):
     isso, este handler lê o corpo da requisição diretamente e faz o
     parsing manual do conteúdo multipart/form-data.
     """
+    redirect = require_authentication(request)
+    if redirect:
+        return redirect
+    current_user = get_current_user(request)
     # Verifica content-type e extrai boundary
     content_type = request.headers.get('content-type', '')
     if 'multipart/form-data' not in content_type:
@@ -403,7 +531,7 @@ async def upload_file(request: Request):
                     remove_statement(fname)
 
         os.replace(temp_path, save_path)
-        insert_statement(secure_name, parsed)
+        insert_statement(secure_name, parsed, current_user["id"])
         messages.append(f'Arquivo {secure_name} carregado com sucesso.')
 
     if not messages:
@@ -417,7 +545,10 @@ async def upload_file(request: Request):
 
 
 @app.post("/delete/{filename:path}")
-async def delete_file(filename: str):
+async def delete_file(request: Request, filename: str):
+    redirect = require_authentication(request)
+    if redirect:
+        return redirect
     remove_statement(filename)
     url = app.url_path_for('index') + '?msg=' + f'Arquivo {filename} removido.'
     return RedirectResponse(url, status_code=303)
@@ -425,6 +556,9 @@ async def delete_file(filename: str):
 
 @app.get("/consulta", response_class=HTMLResponse)
 async def consulta_get(request: Request):
+    redirect = require_authentication(request)
+    if redirect:
+        return redirect
     """Renderiza a página de consulta. Aceita mes_key via query string."""
     mes_key = request.query_params.get('mes_key') if request.query_params else None
     months = get_months_available()
@@ -458,6 +592,9 @@ async def consulta_get(request: Request):
 
 @app.get("/dashboard_totais", response_class=HTMLResponse)
 async def dashboard_totais(request: Request):
+    redirect = require_authentication(request)
+    if redirect:
+        return redirect
     months_available = get_months_available()
     start_month = request.query_params.get('start') if request.query_params else None
     end_month = request.query_params.get('end') if request.query_params else None
@@ -628,7 +765,10 @@ async def dashboard_totais(request: Request):
 
 
 @app.get("/download/{filename:path}")
-async def download_file(filename: str):
+async def download_file(request: Request, filename: str):
+    redirect = require_authentication(request)
+    if redirect:
+        return redirect
     file_path = os.path.join(UPLOAD_FOLDER, filename)
     return FileResponse(file_path, filename=filename)
 

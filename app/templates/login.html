@@ -1,0 +1,22 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <h2 class="mb-4">Login</h2>
+    {% if error %}
+    <div class="alert alert-danger" role="alert">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="{{ request.url_for('login_post') }}" enctype="application/x-www-form-urlencoded">
+      <div class="form-group">
+        <label for="username">Usuário</label>
+        <input type="text" class="form-control" id="username" name="username" maxlength="20" required>
+      </div>
+      <div class="form-group">
+        <label for="password">Senha</label>
+        <input type="password" class="form-control" id="password" name="password" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Entrar</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
