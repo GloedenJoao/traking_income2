@@ -56,6 +56,23 @@ def format_currency_brl(value):
 
 templates.env.filters["currency_br"] = format_currency_brl
 
+
+def calculate_percentage(part: Optional[float], total: Optional[float]) -> Optional[float]:
+    """Retorna o percentual de ``part`` sobre ``total`` ou ``None`` quando não calculável."""
+
+    if total in (None, 0):
+        return None
+    if part is None:
+        return None
+    try:
+        part_value = float(part)
+        total_value = float(total)
+    except (TypeError, ValueError):
+        return None
+    if total_value == 0:
+        return None
+    return (part_value / total_value) * 100
+
 # Monta diretório de uploads como estático para servir PDFs
 app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
 
@@ -398,11 +415,28 @@ async def consulta_get(request: Request):
     months = get_months_available()
     items = []
     totals = None
+    descontos_pct = None
+    liquido_pct = None
     selected_key = mes_key
     if selected_key:
         items = get_items_by_month(selected_key)
         totals = get_totals_by_month(selected_key)
-    return templates.TemplateResponse('consulta.html', {"request": request, "months": months, "items": items, "totals": totals, "selected_key": selected_key})
+        if totals:
+            total_proventos = totals['total_proventos']
+            descontos_pct = calculate_percentage(totals['total_descontos'], total_proventos)
+            liquido_pct = calculate_percentage(totals['liquido'], total_proventos)
+    return templates.TemplateResponse(
+        'consulta.html',
+        {
+            "request": request,
+            "months": months,
+            "items": items,
+            "totals": totals,
+            "selected_key": selected_key,
+            "descontos_pct": descontos_pct,
+            "liquido_pct": liquido_pct,
+        },
+    )
 
 
 
