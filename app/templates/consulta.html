@@ -2,6 +2,15 @@
 {% block content %}
 <h2>Consulta de demonstrativos</h2>
 <form method="get" action="{{ request.url_for('consulta_get') }}" class="form-inline mb-3">
+  {% if current_user and current_user.is_admin %}
+  <label class="mr-2" for="user">Usuário:</label>
+  <select class="form-control mr-2" name="user" id="user">
+    <option value="" {% if not selected_user %}selected{% endif %}>Todos</option>
+    {% for user in users %}
+      <option value="{{ user.username }}" {% if selected_user == user.username %}selected{% endif %}>{{ user.username }}{% if user.is_admin %} (admin){% endif %}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
   <label class="mr-2" for="mes_key">Selecione o mês:</label>
   <select class="form-control mr-2" name="mes_key" id="mes_key" required>
     <option value="">-- Selecione --</option>

@@ -253,6 +253,13 @@
           </li>
         </ul>
         <div class="ml-auto d-flex align-items-center">
+          {% if current_user %}
+          <span class="text-muted mr-3">{{ current_user.username }}{% if current_user.is_admin %} (admin){% endif %}</span>
+          <a class="btn btn-outline-secondary btn-sm mr-2" href="{{ request.url_for('logout') }}">Sair</a>
+          {% else %}
+          <a class="btn btn-outline-secondary btn-sm mr-2" href="{{ request.url_for('login_get') }}">Entrar</a>
+          <a class="btn btn-primary btn-sm mr-3" href="{{ request.url_for('register_get') }}">Registrar</a>
+          {% endif %}
           <div class="custom-control custom-switch theme-toggle">
             <input type="checkbox" class="custom-control-input" id="themeToggle">
             <label class="custom-control-label" for="themeToggle">Modo escuro</label>

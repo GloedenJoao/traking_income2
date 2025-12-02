@@ -5,6 +5,18 @@
 {% if msg %}
   <div class="alert alert-info">{{ msg }}</div>
 {% endif %}
+{% if current_user and current_user.is_admin %}
+  <form method="get" action="{{ request.url_for('index') }}" class="mb-3 form-inline">
+    <label class="mr-2" for="user">Filtrar por usuário:</label>
+    <select id="user" name="user" class="custom-select mr-2">
+      <option value="" {% if not selected_user %}selected{% endif %}>Todos</option>
+      {% for user in users %}
+      <option value="{{ user.username }}" {% if selected_user == user.username %}selected{% endif %}>{{ user.username }}{% if user.is_admin %} (admin){% endif %}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-outline-primary">Aplicar</button>
+  </form>
+{% endif %}
 <form method="post" action="{{ request.url_for('upload_file') }}{% if confirm %}?confirm=1{% endif %}" enctype="multipart/form-data" class="mb-4">
   <div class="form-group">
     <div class="custom-file">
@@ -12,6 +24,16 @@
       <label class="custom-file-label" for="files">Selecione arquivos PDF</label>
     </div>
   </div>
+  {% if current_user and current_user.is_admin %}
+  <div class="form-group">
+    <label for="owner">Atribuir ao usuário</label>
+    <select id="owner" name="owner" class="custom-select">
+      {% for user in users %}
+      <option value="{{ user.username }}" {% if selected_user == user.username %}selected{% elif user.username == current_user.username %}selected{% endif %}>{{ user.username }}{% if user.is_admin %} (admin){% endif %}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
   <div class="form-group form-check">
     <input type="checkbox" class="form-check-input" id="confirm" name="confirm" value="1" {% if confirm %}checked{% endif %}>
     <label class="form-check-label" for="confirm">Confirmar substituição em caso de duplicidade</label>

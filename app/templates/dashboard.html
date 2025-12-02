@@ -26,6 +26,17 @@
 
 <form class="mb-4" id="filtersForm" method="get" action="{{ request.url_for('dashboard_totais') }}">
   <div class="form-row align-items-end">
+    {% if current_user and current_user.is_admin %}
+    <div class="form-group col-12 col-md-3 mb-3 mb-md-0">
+      <label for="user">Usuário</label>
+      <select class="form-control" id="user" name="user">
+        <option value="" {% if not selected_user %}selected{% endif %}>Todos</option>
+        {% for user in users %}
+        <option value="{{ user.username }}" {% if selected_user == user.username %}selected{% endif %}>{{ user.username }}{% if user.is_admin %} (admin){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
     <div class="form-group col-12 col-md-3 mb-3 mb-md-0">
       <label for="start">Início (ano/mês)</label>
       <input type="month" class="form-control" id="start" name="start" value="{{ start_month }}">
