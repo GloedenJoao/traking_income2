@@ -491,6 +491,7 @@ async def dashboard_totais(request: Request):
         "liquido": None,
     }
     graphs_json = None
+    band_table_rows = []
     if series:
         last_row = series[-1]
         last_month = {
@@ -514,10 +515,41 @@ async def dashboard_totais(request: Request):
                 "total_descontos": calculate_variation(last_row["total_descontos"], prev_row["total_descontos"]),
                 "liquido": calculate_variation(last_row["liquido"], prev_row["liquido"]),
             }
-        months = [row['mes_ano'] for row in series]
-        prov_series = [row['total_proventos'] for row in series]
-        desc_series = [row['total_descontos'] for row in series]
-        liq_series = [row['liquido'] for row in series]
+        months = []
+        prov_series = []
+        desc_series = []
+        liq_series = []
+
+        prev_prov = None
+        prev_desc = None
+        prev_liq = None
+
+        for row in series:
+            month_label = row['mes_ano']
+            total_prov = row['total_proventos']
+            total_desc = row['total_descontos']
+            total_liq = row['liquido']
+
+            months.append(month_label)
+            prov_series.append(total_prov)
+            desc_series.append(total_desc)
+            liq_series.append(total_liq)
+
+            band_table_rows.append(
+                {
+                    "mes_ano": month_label,
+                    "proventos": total_prov,
+                    "descontos": total_desc,
+                    "liquido": total_liq,
+                    "var_proventos": calculate_variation(total_prov, prev_prov),
+                    "var_descontos": calculate_variation(total_desc, prev_desc),
+                    "var_liquido": calculate_variation(total_liq, prev_liq),
+                }
+            )
+
+            prev_prov = total_prov
+            prev_desc = total_desc
+            prev_liq = total_liq
 
         traces = []
         series_map = {
@@ -590,6 +622,7 @@ async def dashboard_totais(request: Request):
             "last_month": last_month,
             "prev_month": prev_month,
             "variations": variations,
+            "band_table_rows": band_table_rows,
         },
     )
 

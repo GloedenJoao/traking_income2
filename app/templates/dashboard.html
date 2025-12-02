@@ -2,6 +2,28 @@
 {% block content %}
 <h2>Dashboard</h2>
 
+<style>
+  .band-table-variation {
+    font-weight: 600;
+  }
+
+  .band-table-variation.positive {
+    color: #28a745;
+  }
+
+  .band-table-variation.negative {
+    color: #dc3545;
+  }
+
+  body.dark-mode .band-table-variation.positive {
+    color: #8fd19e;
+  }
+
+  body.dark-mode .band-table-variation.negative {
+    color: #f28b9a;
+  }
+</style>
+
 <form class="mb-4" id="filtersForm" method="get" action="{{ request.url_for('dashboard_totais') }}">
   <div class="form-row align-items-end">
     <div class="form-group col-12 col-md-3 mb-3 mb-md-0">
@@ -192,6 +214,60 @@
       Plotly.newPlot(divId, fig['data'], fig['layout']);
     }
   </script>
+  {% if band_table_rows %}
+    <div class="table-responsive mt-4">
+      <table class="table table-striped table-custom">
+        <thead>
+          <tr>
+            <th scope="col">Mês</th>
+            <th scope="col">Proventos</th>
+            <th scope="col">Descontos</th>
+            <th scope="col">Líquido</th>
+            <th scope="col">Var. Proventos</th>
+            <th scope="col">Var. Descontos</th>
+            <th scope="col">Var. Líquido</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in band_table_rows %}
+            <tr>
+              <td>{{ row.mes_ano }}</td>
+              <td>{{ row.proventos | currency_br }}</td>
+              <td>{{ row.descontos | currency_br }}</td>
+              <td>{{ row.liquido | currency_br }}</td>
+              <td>
+                {% set var_value = row.var_proventos %}
+                {% if var_value is not none %}
+                  {% set var_class = 'positive' if var_value >= 0 else 'negative' %}
+                  <span class="band-table-variation {{ var_class }}">{{ "%+.2f"|format(var_value)|replace('.', ',') }}%</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% set var_value = row.var_descontos %}
+                {% if var_value is not none %}
+                  {% set var_class = 'positive' if var_value >= 0 else 'negative' %}
+                  <span class="band-table-variation {{ var_class }}">{{ "%+.2f"|format(var_value)|replace('.', ',') }}%</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% set var_value = row.var_liquido %}
+                {% if var_value is not none %}
+                  {% set var_class = 'positive' if var_value >= 0 else 'negative' %}
+                  <span class="band-table-variation {{ var_class }}">{{ "%+.2f"|format(var_value)|replace('.', ',') }}%</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
 {% else %}
   <p>Nenhum dado disponível para exibir o dashboard.</p>
 {% endif %}
