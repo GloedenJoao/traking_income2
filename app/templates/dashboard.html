@@ -13,19 +13,74 @@
       <input type="month" class="form-control" id="end" name="end" value="{{ end_month }}">
     </div>
     <div class="form-group col-md-4">
-      <label for="types">Tipos</label>
-      <select multiple class="form-control" id="types" name="types">
-        <option value="proventos" {% if 'proventos' in selected_types %}selected{% endif %}>Proventos</option>
-        <option value="descontos" {% if 'descontos' in selected_types %}selected{% endif %}>Descontos</option>
-        <option value="liquido" {% if 'liquido' in selected_types %}selected{% endif %}>Líquido</option>
-      </select>
-      <small class="form-text text-muted">Segure Ctrl/Cmd para selecionar múltiplos tipos.</small>
+      <label for="typesDropdownButton">Tipos</label>
+      <div class="btn-group w-100">
+        <button type="button" class="btn btn-outline-secondary dropdown-toggle w-100 text-left" id="typesDropdownButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+          Selecionar tipos
+        </button>
+        <div class="dropdown-menu w-100 p-3" id="typesDropdownMenu" aria-labelledby="typesDropdownButton">
+          <div class="form-check">
+            <input class="form-check-input type-option" type="checkbox" value="proventos" id="typeProventos" name="types" {% if 'proventos' in selected_types %}checked{% endif %}>
+            <label class="form-check-label" for="typeProventos">Proventos</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input type-option" type="checkbox" value="descontos" id="typeDescontos" name="types" {% if 'descontos' in selected_types %}checked{% endif %}>
+            <label class="form-check-label" for="typeDescontos">Descontos</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input type-option" type="checkbox" value="liquido" id="typeLiquido" name="types" {% if 'liquido' in selected_types %}checked{% endif %}>
+            <label class="form-check-label" for="typeLiquido">Líquido</label>
+          </div>
+        </div>
+      </div>
+      <small class="form-text text-muted">Selecione um ou mais tipos usando o menu acima.</small>
     </div>
     <div class="form-group col-md-2 align-self-end">
       <button type="submit" class="btn btn-primary btn-block">Aplicar filtros</button>
     </div>
   </div>
 </form>
+
+<script>
+  (function() {
+    var dropdownButton = document.getElementById('typesDropdownButton');
+    var dropdownMenu = document.getElementById('typesDropdownMenu');
+
+    if (!dropdownButton || !dropdownMenu) {
+      return;
+    }
+
+    var labelMap = {
+      proventos: 'Proventos',
+      descontos: 'Descontos',
+      liquido: 'Líquido'
+    };
+
+    var checkboxes = dropdownMenu.querySelectorAll('.type-option');
+
+    dropdownMenu.addEventListener('click', function(event) {
+      event.stopPropagation();
+    });
+
+    function updateDropdownLabel() {
+      var selected = [];
+
+      checkboxes.forEach(function(checkbox) {
+        if (checkbox.checked) {
+          selected.push(labelMap[checkbox.value] || checkbox.value);
+        }
+      });
+
+      dropdownButton.textContent = selected.length ? selected.join(', ') : 'Selecionar tipos';
+    }
+
+    checkboxes.forEach(function(checkbox) {
+      checkbox.addEventListener('change', updateDropdownLabel);
+    });
+
+    updateDropdownLabel();
+  })();
+</script>
 
 {% if graphs_json %}
   <div id="graphs"></div>
