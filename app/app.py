@@ -7,11 +7,14 @@ alterações devem seguir as orientações em ``AGENTS.MD`` e atualizar
 este arquivo conforme necessário.
 """
 
+import base64
+import binascii
 import hashlib
 import hmac
 import os
 import secrets
 import sqlite3
+import sys
 from typing import Dict, List, Tuple, Optional
 
 from fastapi import FastAPI, Request, Query
@@ -19,13 +22,16 @@ from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from itsdangerous import BadSignature, URLSafeSerializer
-
 import plotly.graph_objs as go
 import plotly
 import json
 
-from .parse_utils import parse_pdf
+if __package__ is None:
+    if os.path.dirname(__file__) not in sys.path:
+        sys.path.append(os.path.dirname(__file__))
+    from parse_utils import parse_pdf
+else:
+    from .parse_utils import parse_pdf
 
 # Diretórios base
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -33,10 +39,9 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, 'data')
 DB_PATH = os.path.join(BASE_DIR, 'database.db')
 
 SECRET_KEY = os.environ.get('APP_SECRET_KEY', 'change-me-secret-key')
+SECRET_KEY_BYTES = SECRET_KEY.encode('utf-8')
 SESSION_COOKIE_NAME = 'session_token'
 SESSION_MAX_AGE = 60 * 60 * 8  # 8 hours
-
-serializer = URLSafeSerializer(SECRET_KEY, salt='session-token')
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -127,13 +132,26 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 
 def create_session_token(payload: Dict[str, str]) -> str:
-    return serializer.dumps(payload)
+    serialized = json.dumps(payload, separators=(',', ':'), sort_keys=True).encode('utf-8')
+    signature = hmac.new(SECRET_KEY_BYTES, serialized, hashlib.sha256).hexdigest()
+    token = base64.urlsafe_b64encode(serialized).decode('utf-8') + '.' + signature
+    return token
 
 
 def decode_session_token(token: str) -> Optional[Dict[str, str]]:
+    if '.' not in token:
+        return None
+    data_b64, signature = token.rsplit('.', 1)
     try:
-        return serializer.loads(token)
-    except BadSignature:
+        serialized = base64.urlsafe_b64decode(data_b64.encode('utf-8'))
+    except (ValueError, binascii.Error):
+        return None
+    expected_sig = hmac.new(SECRET_KEY_BYTES, serialized, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected_sig):
+        return None
+    try:
+        return json.loads(serialized.decode('utf-8'))
+    except json.JSONDecodeError:
         return None
 
 
