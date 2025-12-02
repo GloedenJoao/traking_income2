@@ -43,6 +43,71 @@
   </div>
 </form>
 
+{% if last_month %}
+  <div class="row mb-4">
+    <div class="col-12 col-md-4 mb-3 mb-md-0">
+      <div class="card h-100" style="background-color: var(--surface-color); border-color: var(--border-color);">
+        <div class="card-body">
+          <h5 class="card-title mb-1">Total ({{ last_month.mes_ano }})</h5>
+          <p class="text-muted small mb-2">
+            {% if prev_month %}Comparado a {{ prev_month.mes_ano }}{% else %}Sem mês anterior disponível{% endif %}
+          </p>
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="h4 mb-0">{{ last_month.total_proventos | currency_br }}</span>
+            {% set var_value = variations.total_proventos %}
+            {% if var_value is not none %}
+              {% set var_class = 'text-success' if var_value >= 0 else 'text-danger' %}
+              <span class="{{ var_class }} font-weight-bold">{{ "%+.2f"|format(var_value).replace('.', ',') }}%</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4 mb-3 mb-md-0">
+      <div class="card h-100" style="background-color: var(--surface-color); border-color: var(--border-color);">
+        <div class="card-body">
+          <h5 class="card-title mb-1">Descontos ({{ last_month.mes_ano }})</h5>
+          <p class="text-muted small mb-2">
+            {% if prev_month %}Comparado a {{ prev_month.mes_ano }}{% else %}Sem mês anterior disponível{% endif %}
+          </p>
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="h4 mb-0">{{ last_month.total_descontos | currency_br }}</span>
+            {% set var_value = variations.total_descontos %}
+            {% if var_value is not none %}
+              {% set var_class = 'text-success' if var_value >= 0 else 'text-danger' %}
+              <span class="{{ var_class }} font-weight-bold">{{ "%+.2f"|format(var_value).replace('.', ',') }}%</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="card h-100" style="background-color: var(--surface-color); border-color: var(--border-color);">
+        <div class="card-body">
+          <h5 class="card-title mb-1">Líquido ({{ last_month.mes_ano }})</h5>
+          <p class="text-muted small mb-2">
+            {% if prev_month %}Comparado a {{ prev_month.mes_ano }}{% else %}Sem mês anterior disponível{% endif %}
+          </p>
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="h4 mb-0">{{ last_month.liquido | currency_br }}</span>
+            {% set var_value = variations.liquido %}
+            {% if var_value is not none %}
+              {% set var_class = 'text-success' if var_value >= 0 else 'text-danger' %}
+              <span class="{{ var_class }} font-weight-bold">{{ "%+.2f"|format(var_value).replace('.', ',') }}%</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
 <script>
   (function() {
     var dropdownButton = document.getElementById('typesDropdownButton');
