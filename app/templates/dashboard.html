@@ -57,7 +57,7 @@
             {% set var_value = variations.total_proventos %}
             {% if var_value is not none %}
               {% set var_class = 'text-success' if var_value >= 0 else 'text-danger' %}
-              <span class="{{ var_class }} font-weight-bold">{{ "%+.2f"|format(var_value).replace('.', ',') }}%</span>
+              <span class="{{ var_class }} font-weight-bold">{{ "%+.2f"|format(var_value)|replace('.', ',') }}%</span>
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
@@ -77,7 +77,7 @@
             {% set var_value = variations.total_descontos %}
             {% if var_value is not none %}
               {% set var_class = 'text-success' if var_value >= 0 else 'text-danger' %}
-              <span class="{{ var_class }} font-weight-bold">{{ "%+.2f"|format(var_value).replace('.', ',') }}%</span>
+              <span class="{{ var_class }} font-weight-bold">{{ "%+.2f"|format(var_value)|replace('.', ',') }}%</span>
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
@@ -97,7 +97,7 @@
             {% set var_value = variations.liquido %}
             {% if var_value is not none %}
               {% set var_class = 'text-success' if var_value >= 0 else 'text-danger' %}
-              <span class="{{ var_class }} font-weight-bold">{{ "%+.2f"|format(var_value).replace('.', ',') }}%</span>
+              <span class="{{ var_class }} font-weight-bold">{{ "%+.2f"|format(var_value)|replace('.', ',') }}%</span>
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
