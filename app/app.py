@@ -462,8 +462,10 @@ async def dashboard_totais(request: Request):
             hover_texts = []
             previous = None
             for month, value in zip(months, values):
-                delta = value - previous if previous is not None else None
-                delta_text = '—' if delta is None else format_currency_brl(delta)
+                delta_pct = None
+                if previous not in (None, 0):
+                    delta_pct = ((value - previous) / previous) * 100
+                delta_text = '—' if delta_pct is None else f"{delta_pct:+.2f}%".replace('.', ',')
                 hover_texts.append(
                     f"{label} em {month}: {format_currency_brl(value)}<br>Variação mensal: {delta_text}"
                 )
