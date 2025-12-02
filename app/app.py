@@ -388,27 +388,100 @@ async def dashboard(request: Request):
         prov_series = [row['total_proventos'] for row in series]
         desc_series = [row['total_descontos'] for row in series]
         liq_series = [row['liquido'] for row in series]
-        traces = []
-        traces.append(go.Scatter(x=months, y=prov_series, mode='lines+markers', name='Proventos'))
-        traces.append(go.Scatter(x=months, y=desc_series, mode='lines+markers', name='Descontos'))
-        traces.append(go.Scatter(x=months, y=liq_series, mode='lines+markers', name='Líquido'))
-        layout = go.Layout(title='Série histórica de proventos, descontos e líquido', xaxis={'title': 'Mês'}, yaxis={'title': 'Valor (R$)'})
+        def calculate_variations(values: List[Optional[float]]):
+            """Retorna variação percentual mês a mês formatada com sinal."""
+
+            variations = []
+            previous = None
+            for current in values:
+                if previous is None or previous == 0:
+                    variations.append("Δ —")
+                else:
+                    delta = ((current or 0) - previous) / previous * 100
+                    variations.append(f"Δ {delta:+.1f}%")
+                previous = current or 0
+            return variations
+
+        prov_var = calculate_variations(prov_series)
+        desc_var = calculate_variations(desc_series)
+        liq_var = calculate_variations(liq_series)
+
+        def build_text(values: List[Optional[float]], variations: List[str]) -> List[str]:
+            labels = []
+            for value, variation in zip(values, variations):
+                formatted_value = format_currency_brl(value) if value is not None else "N/D"
+                labels.append(f"{formatted_value}\n{variation}")
+            return labels
+
+        prov_text = build_text(prov_series, prov_var)
+        desc_text = build_text(desc_series, desc_var)
+        liq_text = build_text(liq_series, liq_var)
+
+        traces = [
+            go.Scatter(
+                x=months,
+                y=prov_series,
+                mode='lines+markers',
+                name='Proventos',
+                hovertemplate='Mês: %{x}<br>Proventos: R$ %{y:,.2f}<extra></extra>'
+            ),
+            go.Scatter(
+                x=months,
+                y=desc_series,
+                mode='lines+markers',
+                name='Descontos',
+                hovertemplate='Mês: %{x}<br>Descontos: R$ %{y:,.2f}<extra></extra>'
+            ),
+            go.Scatter(
+                x=months,
+                y=liq_series,
+                mode='lines+markers',
+                name='Líquido',
+                hovertemplate='Mês: %{x}<br>Líquido: R$ %{y:,.2f}<extra></extra>'
+            ),
+        ]
+        layout = go.Layout(
+            title='Série histórica de proventos, descontos e líquido',
+            xaxis={'title': 'Mês (ano/mês)', 'type': 'category'},
+            yaxis={'title': 'Total (R$)'},
+        )
         fig_history = go.Figure(data=traces, layout=layout)
-        latest = series[-1]
-        latest_month = latest['mes_key']
-        latest_items = get_items_by_month(latest_month)
-        desc_labels = []
-        desc_prov = []
-        desc_descs = []
-        for item in latest_items:
-            desc_labels.append(item['descricao'])
-            desc_prov.append(item['proventos'] or 0)
-            desc_descs.append(item['descontos'] or 0)
-        bar_trace1 = go.Bar(x=desc_labels, y=desc_prov, name='Proventos')
-        bar_trace2 = go.Bar(x=desc_labels, y=desc_descs, name='Descontos')
-        bar_layout = go.Layout(title=f'Composição de proventos e descontos em {latest["mes_ano"]}', barmode='group', xaxis={'title':'Descrição'}, yaxis={'title':'Valor (R$)'})
-        fig_latest = go.Figure(data=[bar_trace1, bar_trace2], layout=bar_layout)
-        graphs = [fig_history, fig_latest]
+
+        bar_trace1 = go.Bar(
+            x=months,
+            y=prov_series,
+            name='Proventos',
+            text=prov_text,
+            textposition='outside',
+            hovertemplate='Mês: %{x}<br>Proventos: R$ %{y:,.2f}<br>%{text}<extra></extra>',
+        )
+        bar_trace2 = go.Bar(
+            x=months,
+            y=desc_series,
+            name='Descontos',
+            text=desc_text,
+            textposition='outside',
+            hovertemplate='Mês: %{x}<br>Descontos: R$ %{y:,.2f}<br>%{text}<extra></extra>',
+        )
+        bar_trace3 = go.Bar(
+            x=months,
+            y=liq_series,
+            name='Líquido',
+            text=liq_text,
+            textposition='outside',
+            hovertemplate='Mês: %{x}<br>Líquido: R$ %{y:,.2f}<br>%{text}<extra></extra>',
+        )
+        bar_layout = go.Layout(
+            title='Totais mensais por componente (faixas)',
+            barmode='group',
+            xaxis={'title': 'Mês (ano/mês)', 'type': 'category'},
+            yaxis={'title': 'Total (R$)'},
+            legend={'title': 'Componentes'},
+            bargap=0.25,
+        )
+        fig_monthly_totals = go.Figure(data=[bar_trace1, bar_trace2, bar_trace3], layout=bar_layout)
+
+        graphs = [fig_history, fig_monthly_totals]
         graphs_json = json.dumps(graphs, cls=plotly.utils.PlotlyJSONEncoder)
     return templates.TemplateResponse('dashboard.html', {"request": request, "graphs_json": graphs_json})
 
