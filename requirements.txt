@@ -5,3 +5,5 @@ uvicorn
 pymupdf
 plotly
 jinja2
+python-multipart
+itsdangerous
