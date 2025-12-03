@@ -520,6 +520,10 @@ async def dashboard_totais(request: Request):
         desc_series = []
         liq_series = []
 
+        var_prov_series = []
+        var_desc_series = []
+        var_liq_series = []
+
         prev_prov = None
         prev_desc = None
         prev_liq = None
@@ -530,10 +534,18 @@ async def dashboard_totais(request: Request):
             total_desc = row['total_descontos']
             total_liq = row['liquido']
 
+            var_prov = calculate_variation(total_prov, prev_prov)
+            var_desc = calculate_variation(total_desc, prev_desc)
+            var_liq = calculate_variation(total_liq, prev_liq)
+
             months.append(month_label)
             prov_series.append(total_prov)
             desc_series.append(total_desc)
             liq_series.append(total_liq)
+
+            var_prov_series.append(var_prov)
+            var_desc_series.append(var_desc)
+            var_liq_series.append(var_liq)
 
             band_table_rows.append(
                 {
@@ -541,9 +553,9 @@ async def dashboard_totais(request: Request):
                     "proventos": total_prov,
                     "descontos": total_desc,
                     "liquido": total_liq,
-                    "var_proventos": calculate_variation(total_prov, prev_prov),
-                    "var_descontos": calculate_variation(total_desc, prev_desc),
-                    "var_liquido": calculate_variation(total_liq, prev_liq),
+                    "var_proventos": var_prov,
+                    "var_descontos": var_desc,
+                    "var_liquido": var_liq,
                 }
             )
 
@@ -559,14 +571,48 @@ async def dashboard_totais(request: Request):
         }
         for key, (label, values) in series_map.items():
             if key in selected_types:
-                traces.append(go.Scatter(x=months, y=values, mode='lines+markers', name=label))
+                traces.append(
+                    go.Bar(
+                        x=months,
+                        y=values,
+                        name=label,
+                        offsetgroup=key,
+                        hovertemplate=f"{label} em %{x}: %{y:,.2f}<extra></extra>",
+                    )
+                )
+
+        variation_traces = []
+        variation_map = {
+            'proventos': ('Variação Proventos', var_prov_series),
+            'descontos': ('Variação Descontos', var_desc_series),
+            'liquido': ('Variação Líquido', var_liq_series),
+        }
+        for key, (label, variations) in variation_map.items():
+            if key in selected_types:
+                variation_traces.append(
+                    go.Scatter(
+                        x=months,
+                        y=variations,
+                        mode='lines+markers',
+                        name=label,
+                        yaxis='y2',
+                        hovertemplate=f"{label} em %{x}: %{y:.2f}%<extra></extra>",
+                    )
+                )
 
         layout = go.Layout(
             title='Série histórica de proventos, descontos e líquido',
             xaxis={'title': 'Mês'},
             yaxis={'title': 'Valor (R$)'},
+            yaxis2={
+                'title': 'Variação mensal (%)',
+                'overlaying': 'y',
+                'side': 'right',
+                'tickformat': '.2f',
+            },
+            barmode='group',
         )
-        fig_history = go.Figure(data=traces, layout=layout)
+        fig_history = go.Figure(data=traces + variation_traces, layout=layout)
 
         def build_hover_text(label: str, values: List[float]):
             hover_texts = []
