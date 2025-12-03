@@ -251,6 +251,11 @@
           <li class="nav-item">
             <a class="nav-link" href="{{ request.url_for('dashboard_totais') }}">Dashboard</a>
           </li>
+          {% if admin_user %}
+          <li class="nav-item">
+            <a class="nav-link" href="{{ request.url_for('admin_select_get') }}">Trocar usuário</a>
+          </li>
+          {% endif %}
         </ul>
         <div class="ml-auto d-flex align-items-center">
           <div class="custom-control custom-switch theme-toggle">
@@ -258,7 +263,11 @@
             <label class="custom-control-label" for="themeToggle">Modo escuro</label>
           </div>
           {% if current_user %}
+          {% if admin_user and current_user['id'] != admin_user['id'] %}
+          <span class="ml-3 mr-3 text-muted">Admin <strong>{{ admin_user['username'] }}</strong> atuando como <strong>{{ current_user['username'] }}</strong></span>
+          {% else %}
           <span class="ml-3 mr-3 text-muted">Logado como <strong>{{ current_user['username'] }}</strong></span>
+          {% endif %}
           <form method="post" action="{{ request.url_for('logout') }}" class="mb-0">
             <button type="submit" class="btn btn-outline-secondary btn-sm">Sair</button>
           </form>

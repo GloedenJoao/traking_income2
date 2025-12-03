@@ -10,7 +10,7 @@ este arquivo conforme necessário.
 import hashlib
 import os
 import sqlite3
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
@@ -153,10 +153,14 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
-            salt TEXT NOT NULL
+            salt TEXT NOT NULL,
+            is_admin INTEGER NOT NULL DEFAULT 0
         )
         '''
     )
+
+    if not table_has_columns(cur, 'users', {'is_admin'}):
+        cur.execute('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0')
 
     # Verifica se as tabelas de dados já possuem coluna de usuário; se não, recria
     if not table_has_columns(cur, 'item_view', {'user_id'}):
@@ -196,6 +200,8 @@ def init_db():
     conn.commit()
     conn.close()
 
+    ensure_admin_exists()
+
     # Remove arquivos legados salvos diretamente em ``data/`` para evitar compartilhamento involuntário
     for entry in os.listdir(UPLOAD_FOLDER):
         path = os.path.join(UPLOAD_FOLDER, entry)
@@ -232,12 +238,24 @@ def get_user_by_id(user_id: int):
     return row
 
 
-def create_user(username: str, password: str) -> Optional[int]:
+def get_all_users():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT id, username, is_admin FROM users ORDER BY username')
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def create_user(username: str, password: str, *, is_admin: bool = False) -> Optional[int]:
     salt_hex, pwd_hash = generate_password_hash(password)
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute('INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)', (username, pwd_hash, salt_hex))
+        cur.execute(
+            'INSERT INTO users (username, password_hash, salt, is_admin) VALUES (?, ?, ?, ?)',
+            (username, pwd_hash, salt_hex, 1 if is_admin else 0),
+        )
         conn.commit()
         user_id = cur.lastrowid
     except sqlite3.IntegrityError:
@@ -247,11 +265,47 @@ def create_user(username: str, password: str) -> Optional[int]:
     return user_id
 
 
+def ensure_admin_exists():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT id FROM users WHERE username = ? LIMIT 1', ('admin',))
+    exists = cur.fetchone()
+    conn.close()
+    if exists:
+        return
+    create_user('admin', 'admin01', is_admin=True)
+
+
+def get_admin_user(request: Request):
+    if not hasattr(request, 'session'):
+        return None
+    admin_id = request.session.get('admin_id')
+    if not admin_id:
+        return None
+    admin = get_user_by_id(admin_id)
+    if admin and admin.get('is_admin'):
+        return admin
+    return None
+
+
 def get_current_user(request: Request):
-    user_id = request.session.get('user_id') if hasattr(request, 'session') else None
+    if not hasattr(request, 'session'):
+        return None
+    user_id = request.session.get('impersonated_user_id') or request.session.get('user_id')
     if not user_id:
         return None
     return get_user_by_id(user_id)
+
+
+def build_base_context(request: Request, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    context = {
+        "request": request,
+        "current_user": get_current_user(request),
+        "admin_user": get_admin_user(request),
+    }
+    if extra:
+        context.update(extra)
+    return context
 
 
 def ensure_authenticated(request: Request):
@@ -264,6 +318,18 @@ def ensure_authenticated(request: Request):
         redirect_to = f"{login_url}?next={next_path}"
         return None, RedirectResponse(redirect_to, status_code=303)
     return user, None
+
+
+def ensure_admin(request: Request):
+    admin_user = get_admin_user(request)
+    if not admin_user:
+        login_url = app.url_path_for('login_get')
+        next_path = request.url.path
+        if request.url.query:
+            next_path += '?' + request.url.query
+        redirect_to = f"{login_url}?next={next_path}"
+        return None, RedirectResponse(redirect_to, status_code=303)
+    return admin_user, None
 
 
 def insert_statement(file_name: str, parsed: dict, user_id: int) -> None:
@@ -447,13 +513,14 @@ async def index(request: Request, msg: Optional[str] = None, confirm: Optional[i
     files = get_uploaded_files(current_user['id'])
     return templates.TemplateResponse(
         'index.html',
-        {
-            "request": request,
-            "files": files,
-            "msg": msg,
-            "confirm": confirm,
-            "current_user": current_user,
-        },
+        build_base_context(
+            request,
+            {
+                "files": files,
+                "msg": msg,
+                "confirm": confirm,
+            },
+        ),
     )
 
 
@@ -465,7 +532,7 @@ async def login_get(request: Request, next: Optional[str] = None, msg: Optional[
         return RedirectResponse(redirect_to, status_code=303)
     return templates.TemplateResponse(
         'login.html',
-        {"request": request, "next": next, "msg": msg, "current_user": current_user},
+        build_base_context(request, {"next": next, "msg": msg}),
     )
 
 
@@ -487,16 +554,20 @@ async def login_post(request: Request):
     if error:
         return templates.TemplateResponse(
             'login.html',
-            {
-                "request": request,
-                "next": next_url,
-                "msg": error,
-                "current_user": None,
-            },
+            build_base_context(request, {"next": next_url, "msg": error}),
             status_code=400,
         )
 
     request.session['user_id'] = user['id']
+    request.session.pop('impersonated_user_id', None)
+    if user.get('is_admin'):
+        request.session['admin_id'] = user['id']
+        if next_url:
+            request.session['post_login_next'] = next_url
+        return RedirectResponse(app.url_path_for('admin_select_get'), status_code=303)
+
+    request.session.pop('admin_id', None)
+    request.session.pop('post_login_next', None)
     redirect_to = next_url or app.url_path_for('index')
     return RedirectResponse(redirect_to, status_code=303)
 
@@ -508,7 +579,7 @@ async def register_get(request: Request, msg: Optional[str] = None):
         return RedirectResponse(app.url_path_for('index'), status_code=303)
     return templates.TemplateResponse(
         'register.html',
-        {"request": request, "msg": msg, "current_user": current_user},
+        build_base_context(request, {"msg": msg}),
     )
 
 
@@ -523,7 +594,7 @@ async def register_post(request: Request):
         msg = 'Informe usuário e senha para continuar.'
         return templates.TemplateResponse(
             'register.html',
-            {"request": request, "msg": msg, "current_user": None},
+            build_base_context(request, {"msg": msg}),
             status_code=400,
         )
 
@@ -531,7 +602,7 @@ async def register_post(request: Request):
         msg = 'As senhas não conferem.'
         return templates.TemplateResponse(
             'register.html',
-            {"request": request, "msg": msg, "current_user": None},
+            build_base_context(request, {"msg": msg}),
             status_code=400,
         )
 
@@ -540,7 +611,7 @@ async def register_post(request: Request):
         msg = 'Usuário já existe. Escolha outro nome.'
         return templates.TemplateResponse(
             'register.html',
-            {"request": request, "msg": msg, "current_user": None},
+            build_base_context(request, {"msg": msg}),
             status_code=400,
         )
 
@@ -551,7 +622,60 @@ async def register_post(request: Request):
 @app.post("/logout")
 async def logout(request: Request):
     request.session.pop('user_id', None)
+    request.session.pop('admin_id', None)
+    request.session.pop('impersonated_user_id', None)
+    request.session.pop('post_login_next', None)
     return RedirectResponse(app.url_path_for('login_get'), status_code=303)
+
+
+@app.get("/admin/select", response_class=HTMLResponse)
+async def admin_select_get(request: Request, msg: Optional[str] = None):
+    admin_user, redirect_response = ensure_admin(request)
+    if redirect_response:
+        return redirect_response
+
+    users = get_all_users()
+    selected_user = get_current_user(request)
+    return templates.TemplateResponse(
+        'admin_select.html',
+        build_base_context(
+            request,
+            {
+                "users": users,
+                "selected_user": selected_user,
+                "msg": msg,
+            },
+        ),
+    )
+
+
+@app.post("/admin/select")
+async def admin_select_post(request: Request):
+    admin_user, redirect_response = ensure_admin(request)
+    if redirect_response:
+        return redirect_response
+
+    form_data = await request.form()
+    target_id_raw = form_data.get('user_id') or ''
+    try:
+        target_id = int(target_id_raw)
+    except ValueError:
+        url = app.url_path_for('admin_select_get') + '?msg=Usuário inválido.'
+        return RedirectResponse(url, status_code=303)
+
+    target_user = get_user_by_id(target_id)
+    if not target_user:
+        url = app.url_path_for('admin_select_get') + '?msg=Usuário não encontrado.'
+        return RedirectResponse(url, status_code=303)
+
+    if target_user['id'] == admin_user['id']:
+        request.session.pop('impersonated_user_id', None)
+    else:
+        request.session['impersonated_user_id'] = target_user['id']
+
+    request.session['user_id'] = admin_user['id']
+    next_url = request.session.pop('post_login_next', None) or app.url_path_for('index')
+    return RedirectResponse(next_url, status_code=303)
 
 
 @app.post("/upload")
@@ -720,16 +844,17 @@ async def consulta_get(request: Request):
             liquido_pct = calculate_percentage(totals['liquido'], total_proventos)
     return templates.TemplateResponse(
         'consulta.html',
-        {
-            "request": request,
-            "months": months,
-            "items": items,
-            "totals": totals,
-            "selected_key": selected_key,
-            "descontos_pct": descontos_pct,
-            "liquido_pct": liquido_pct,
-            "current_user": current_user,
-        },
+        build_base_context(
+            request,
+            {
+                "months": months,
+                "items": items,
+                "totals": totals,
+                "selected_key": selected_key,
+                "descontos_pct": descontos_pct,
+                "liquido_pct": liquido_pct,
+            },
+        ),
     )
 
 
@@ -896,18 +1021,19 @@ async def dashboard_totais(request: Request):
         graphs_json = json.dumps(graphs, cls=plotly.utils.PlotlyJSONEncoder)
     return templates.TemplateResponse(
         'dashboard.html',
-        {
-            "request": request,
-            "graphs_json": graphs_json,
-            "start_month": start_month,
-            "end_month": end_month,
-            "selected_types": selected_types,
-            "last_month": last_month,
-            "prev_month": prev_month,
-            "variations": variations,
-            "band_table_rows": band_table_rows,
-            "current_user": current_user,
-        },
+        build_base_context(
+            request,
+            {
+                "graphs_json": graphs_json,
+                "start_month": start_month,
+                "end_month": end_month,
+                "selected_types": selected_types,
+                "last_month": last_month,
+                "prev_month": prev_month,
+                "variations": variations,
+                "band_table_rows": band_table_rows,
+            },
+        ),
     )
 
 
