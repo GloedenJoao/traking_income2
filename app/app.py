@@ -283,7 +283,7 @@ def get_admin_user(request: Request):
     if not admin_id:
         return None
     admin = get_user_by_id(admin_id)
-    if admin and admin.get('is_admin'):
+    if admin and admin["is_admin"]:
         return admin
     return None
 
@@ -560,7 +560,7 @@ async def login_post(request: Request):
 
     request.session['user_id'] = user['id']
     request.session.pop('impersonated_user_id', None)
-    if user.get('is_admin'):
+    if user["is_admin"]:
         request.session['admin_id'] = user['id']
         if next_url:
             request.session['post_login_next'] = next_url
