@@ -257,6 +257,15 @@
             <input type="checkbox" class="custom-control-input" id="themeToggle">
             <label class="custom-control-label" for="themeToggle">Modo escuro</label>
           </div>
+          {% if current_user %}
+          <span class="ml-3 mr-3 text-muted">Logado como <strong>{{ current_user['username'] }}</strong></span>
+          <form method="post" action="{{ request.url_for('logout') }}" class="mb-0">
+            <button type="submit" class="btn btn-outline-secondary btn-sm">Sair</button>
+          </form>
+          {% else %}
+          <a class="btn btn-primary btn-sm ml-3 mr-2" href="{{ request.url_for('login_get') }}">Login</a>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ request.url_for('register_get') }}">Cadastrar</a>
+          {% endif %}
         </div>
       </div>
     </nav>

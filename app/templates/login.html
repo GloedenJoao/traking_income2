@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block content %}
+  <h2 class="mb-4">Entrar</h2>
+  {% if msg %}
+  <div class="alert alert-info" role="alert">{{ msg }}</div>
+  {% endif %}
+  <form method="post" action="{{ request.url_for('login_post') }}">
+    {% if next %}
+    <input type="hidden" name="next" value="{{ next }}">
+    {% endif %}
+    <div class="form-group">
+      <label for="username">Usuário</label>
+      <input type="text" class="form-control" id="username" name="username" required>
+    </div>
+    <div class="form-group">
+      <label for="password">Senha</label>
+      <input type="password" class="form-control" id="password" name="password" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Entrar</button>
+    <a class="btn btn-link" href="{{ request.url_for('register_get') }}">Criar nova conta</a>
+  </form>
+{% endblock %}

@@ -7,6 +7,7 @@ alterações devem seguir as orientações em ``AGENTS.MD`` e atualizar
 este arquivo conforme necessário.
 """
 
+import hashlib
 import os
 import sqlite3
 from typing import List, Tuple, Optional
@@ -15,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 import plotly.graph_objs as go
 import plotly
@@ -34,6 +36,7 @@ ALLOWED_EXTENSIONS = {'pdf'}
 ALLOWED_FILE_TYPES = {'FolMen', 'Outros', 'PagPLR'}
 
 app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=os.environ.get('SESSION_SECRET', 'change-me-secret'))
 
 # Configuração de templates Jinja2
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, 'templates'))
@@ -122,6 +125,16 @@ def init_db():
     cur = conn.cursor()
     cur.execute(
         '''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            salt TEXT NOT NULL
+        )
+        '''
+    )
+    cur.execute(
+        '''
         CREATE TABLE IF NOT EXISTS item_view (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             file_name TEXT NOT NULL,
@@ -149,6 +162,69 @@ def init_db():
     )
     conn.commit()
     conn.close()
+
+
+def generate_password_hash(password: str, salt_hex: Optional[str] = None) -> Tuple[str, str]:
+    salt_bytes = bytes.fromhex(salt_hex) if salt_hex else os.urandom(16)
+    pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt_bytes, 100_000)
+    return salt_bytes.hex(), pwd_hash.hex()
+
+
+def verify_password(password: str, salt_hex: str, stored_hash: str) -> bool:
+    _, new_hash = generate_password_hash(password, salt_hex)
+    return stored_hash == new_hash
+
+
+def get_user_by_username(username: str):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM users WHERE username = ?', (username,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def get_user_by_id(user_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def create_user(username: str, password: str) -> Optional[int]:
+    salt_hex, pwd_hash = generate_password_hash(password)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute('INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)', (username, pwd_hash, salt_hex))
+        conn.commit()
+        user_id = cur.lastrowid
+    except sqlite3.IntegrityError:
+        user_id = None
+    finally:
+        conn.close()
+    return user_id
+
+
+def get_current_user(request: Request):
+    user_id = request.session.get('user_id') if hasattr(request, 'session') else None
+    if not user_id:
+        return None
+    return get_user_by_id(user_id)
+
+
+def ensure_authenticated(request: Request):
+    user = get_current_user(request)
+    if not user:
+        login_url = app.url_path_for('login_get')
+        next_path = request.url.path
+        if request.url.query:
+            next_path += '?' + request.url.query
+        redirect_to = f"{login_url}?next={next_path}"
+        return None, RedirectResponse(redirect_to, status_code=303)
+    return user, None
 
 
 def insert_statement(file_name: str, parsed: dict) -> None:
@@ -315,8 +391,118 @@ def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, msg: Optional[str] = None, confirm: Optional[int] = None):
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+
     files = get_uploaded_files()
-    return templates.TemplateResponse('index.html', {"request": request, "files": files, "msg": msg, "confirm": confirm})
+    return templates.TemplateResponse(
+        'index.html',
+        {
+            "request": request,
+            "files": files,
+            "msg": msg,
+            "confirm": confirm,
+            "current_user": current_user,
+        },
+    )
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_get(request: Request, next: Optional[str] = None, msg: Optional[str] = None):
+    current_user = get_current_user(request)
+    if current_user:
+        redirect_to = next or app.url_path_for('index')
+        return RedirectResponse(redirect_to, status_code=303)
+    return templates.TemplateResponse(
+        'login.html',
+        {"request": request, "next": next, "msg": msg, "current_user": current_user},
+    )
+
+
+@app.post("/login")
+async def login_post(request: Request):
+    form_data = await request.form()
+    username = (form_data.get('username') or '').strip()
+    password = form_data.get('password') or ''
+    next_url = form_data.get('next') or None
+
+    error = None
+    user = get_user_by_username(username) if username else None
+    if not user:
+        error = 'Usuário ou senha inválidos.'
+    else:
+        if not verify_password(password, user['salt'], user['password_hash']):
+            error = 'Usuário ou senha inválidos.'
+
+    if error:
+        return templates.TemplateResponse(
+            'login.html',
+            {
+                "request": request,
+                "next": next_url,
+                "msg": error,
+                "current_user": None,
+            },
+            status_code=400,
+        )
+
+    request.session['user_id'] = user['id']
+    redirect_to = next_url or app.url_path_for('index')
+    return RedirectResponse(redirect_to, status_code=303)
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_get(request: Request, msg: Optional[str] = None):
+    current_user = get_current_user(request)
+    if current_user:
+        return RedirectResponse(app.url_path_for('index'), status_code=303)
+    return templates.TemplateResponse(
+        'register.html',
+        {"request": request, "msg": msg, "current_user": current_user},
+    )
+
+
+@app.post("/register")
+async def register_post(request: Request):
+    form_data = await request.form()
+    username = (form_data.get('username') or '').strip()
+    password = form_data.get('password') or ''
+    confirm_password = form_data.get('confirm_password') or ''
+
+    if not username or not password:
+        msg = 'Informe usuário e senha para continuar.'
+        return templates.TemplateResponse(
+            'register.html',
+            {"request": request, "msg": msg, "current_user": None},
+            status_code=400,
+        )
+
+    if password != confirm_password:
+        msg = 'As senhas não conferem.'
+        return templates.TemplateResponse(
+            'register.html',
+            {"request": request, "msg": msg, "current_user": None},
+            status_code=400,
+        )
+
+    user_id = create_user(username, password)
+    if not user_id:
+        msg = 'Usuário já existe. Escolha outro nome.'
+        return templates.TemplateResponse(
+            'register.html',
+            {"request": request, "msg": msg, "current_user": None},
+            status_code=400,
+        )
+
+    request.session['user_id'] = user_id
+    return RedirectResponse(app.url_path_for('index'), status_code=303)
+
+
+@app.post("/logout")
+async def logout(request: Request):
+    request.session.pop('user_id', None)
+    return RedirectResponse(app.url_path_for('login_get'), status_code=303)
 
 
 @app.post("/upload")
@@ -327,6 +513,9 @@ async def upload_file(request: Request):
     isso, este handler lê o corpo da requisição diretamente e faz o
     parsing manual do conteúdo multipart/form-data.
     """
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
     # Verifica content-type e extrai boundary
     content_type = request.headers.get('content-type', '')
     if 'multipart/form-data' not in content_type:
@@ -448,7 +637,11 @@ async def upload_file(request: Request):
 
 
 @app.post("/delete/{filename:path}")
-async def delete_file(filename: str):
+async def delete_file(request: Request, filename: str):
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+
     remove_statement(filename)
     url = app.url_path_for('index') + '?msg=' + f'Arquivo {filename} removido.'
     return RedirectResponse(url, status_code=303)
@@ -457,6 +650,10 @@ async def delete_file(filename: str):
 @app.get("/consulta", response_class=HTMLResponse)
 async def consulta_get(request: Request):
     """Renderiza a página de consulta. Aceita mes_key via query string."""
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+
     mes_key = request.query_params.get('mes_key') if request.query_params else None
     months = get_months_available()
     items = []
@@ -481,6 +678,7 @@ async def consulta_get(request: Request):
             "selected_key": selected_key,
             "descontos_pct": descontos_pct,
             "liquido_pct": liquido_pct,
+            "current_user": current_user,
         },
     )
 
@@ -489,6 +687,10 @@ async def consulta_get(request: Request):
 
 @app.get("/dashboard_totais", response_class=HTMLResponse)
 async def dashboard_totais(request: Request):
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+
     months_available = get_months_available()
     start_month = request.query_params.get('start') if request.query_params else None
     end_month = request.query_params.get('end') if request.query_params else None
@@ -654,12 +856,17 @@ async def dashboard_totais(request: Request):
             "prev_month": prev_month,
             "variations": variations,
             "band_table_rows": band_table_rows,
+            "current_user": current_user,
         },
     )
 
 
 @app.get("/download/{filename:path}")
-async def download_file(filename: str):
+async def download_file(request: Request, filename: str):
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+
     file_path = os.path.join(UPLOAD_FOLDER, filename)
     return FileResponse(file_path, filename=filename)
 
