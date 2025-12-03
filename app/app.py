@@ -7,14 +7,15 @@ alterações devem seguir as orientações em ``AGENTS.MD`` e atualizar
 este arquivo conforme necessário.
 """
 
+import hashlib
 import os
 import sqlite3
 from typing import List, Tuple, Optional
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 import plotly.graph_objs as go
 import plotly
@@ -34,6 +35,7 @@ ALLOWED_EXTENSIONS = {'pdf'}
 ALLOWED_FILE_TYPES = {'FolMen', 'Outros', 'PagPLR'}
 
 app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=os.environ.get('SESSION_SECRET', 'change-me-secret'))
 
 # Configuração de templates Jinja2
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, 'templates'))
@@ -89,12 +91,28 @@ def calculate_variation(current: Optional[float], previous: Optional[float]) -> 
         return None
     return ((current_value - previous_value) / previous_value) * 100
 
-# Monta diretório de uploads como estático para servir PDFs
-app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
-
-
 def allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def ensure_user_upload_dir(user_id: int) -> str:
+    """Retorna (e cria se necessário) o diretório de uploads do usuário."""
+
+    user_dir = os.path.join(UPLOAD_FOLDER, f"user_{user_id}")
+    os.makedirs(user_dir, exist_ok=True)
+    return user_dir
+
+
+def sanitize_filename(filename: str) -> str:
+    """Normaliza o nome do arquivo para evitar path traversal e separadores."""
+
+    safe_name = os.path.basename(filename)
+    return safe_name.replace('/', '_').replace('\\', '_')
+
+
+def get_user_file_path(filename: str, user_id: int) -> str:
+    user_dir = ensure_user_upload_dir(user_id)
+    return os.path.join(user_dir, sanitize_filename(filename))
 
 
 def extract_statement_type(filename: str) -> Optional[str]:
@@ -118,12 +136,39 @@ def get_db_connection():
 
 
 def init_db():
+    def table_has_columns(cursor, table_name: str, required_columns):
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = {row[1] for row in cursor.fetchall()}
+        return required_columns.issubset(columns)
+
+    def recreate_data_tables(cursor):
+        cursor.execute('DROP TABLE IF EXISTS item_view')
+        cursor.execute('DROP TABLE IF EXISTS monthly_totals')
+
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
         '''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            salt TEXT NOT NULL
+        )
+        '''
+    )
+
+    # Verifica se as tabelas de dados já possuem coluna de usuário; se não, recria
+    if not table_has_columns(cur, 'item_view', {'user_id'}):
+        recreate_data_tables(cur)
+    if not table_has_columns(cur, 'monthly_totals', {'user_id'}):
+        recreate_data_tables(cur)
+
+    cur.execute(
+        '''
         CREATE TABLE IF NOT EXISTS item_view (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
             file_name TEXT NOT NULL,
             mes_key TEXT,
             mes_ano TEXT,
@@ -138,6 +183,7 @@ def init_db():
         '''
         CREATE TABLE IF NOT EXISTS monthly_totals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
             file_name TEXT NOT NULL,
             mes_key TEXT,
             mes_ano TEXT,
@@ -150,8 +196,77 @@ def init_db():
     conn.commit()
     conn.close()
 
+    # Remove arquivos legados salvos diretamente em ``data/`` para evitar compartilhamento involuntário
+    for entry in os.listdir(UPLOAD_FOLDER):
+        path = os.path.join(UPLOAD_FOLDER, entry)
+        if os.path.isfile(path) and entry.lower().endswith('.pdf'):
+            os.remove(path)
 
-def insert_statement(file_name: str, parsed: dict) -> None:
+
+def generate_password_hash(password: str, salt_hex: Optional[str] = None) -> Tuple[str, str]:
+    salt_bytes = bytes.fromhex(salt_hex) if salt_hex else os.urandom(16)
+    pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt_bytes, 100_000)
+    return salt_bytes.hex(), pwd_hash.hex()
+
+
+def verify_password(password: str, salt_hex: str, stored_hash: str) -> bool:
+    _, new_hash = generate_password_hash(password, salt_hex)
+    return stored_hash == new_hash
+
+
+def get_user_by_username(username: str):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM users WHERE username = ?', (username,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def get_user_by_id(user_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def create_user(username: str, password: str) -> Optional[int]:
+    salt_hex, pwd_hash = generate_password_hash(password)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute('INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)', (username, pwd_hash, salt_hex))
+        conn.commit()
+        user_id = cur.lastrowid
+    except sqlite3.IntegrityError:
+        user_id = None
+    finally:
+        conn.close()
+    return user_id
+
+
+def get_current_user(request: Request):
+    user_id = request.session.get('user_id') if hasattr(request, 'session') else None
+    if not user_id:
+        return None
+    return get_user_by_id(user_id)
+
+
+def ensure_authenticated(request: Request):
+    user = get_current_user(request)
+    if not user:
+        login_url = app.url_path_for('login_get')
+        next_path = request.url.path
+        if request.url.query:
+            next_path += '?' + request.url.query
+        redirect_to = f"{login_url}?next={next_path}"
+        return None, RedirectResponse(redirect_to, status_code=303)
+    return user, None
+
+
+def insert_statement(file_name: str, parsed: dict, user_id: int) -> None:
     mes_key = parsed.get('mes_key')
     mes_ano = parsed.get('mes_ano')
     items = parsed.get('items', [])
@@ -160,9 +275,10 @@ def insert_statement(file_name: str, parsed: dict) -> None:
     cur = conn.cursor()
     for item in items:
         cur.execute(
-            '''INSERT INTO item_view (file_name, mes_key, mes_ano, descricao, quantidade, proventos, descontos)
-               VALUES (?,?,?,?,?,?,?)''',
+            '''INSERT INTO item_view (user_id, file_name, mes_key, mes_ano, descricao, quantidade, proventos, descontos)
+               VALUES (?,?,?,?,?,?,?,?)''',
             (
+                user_id,
                 file_name,
                 mes_key,
                 mes_ano,
@@ -173,9 +289,10 @@ def insert_statement(file_name: str, parsed: dict) -> None:
             )
         )
     cur.execute(
-        '''INSERT INTO monthly_totals (file_name, mes_key, mes_ano, total_proventos, total_descontos, liquido)
-           VALUES (?,?,?,?,?,?)''',
+        '''INSERT INTO monthly_totals (user_id, file_name, mes_key, mes_ano, total_proventos, total_descontos, liquido)
+           VALUES (?,?,?,?,?,?,?)''',
         (
+            user_id,
             file_name,
             mes_key,
             mes_ano,
@@ -188,85 +305,93 @@ def insert_statement(file_name: str, parsed: dict) -> None:
     conn.close()
 
 
-def remove_statement(file_name: str) -> None:
+def remove_statement(file_name: str, user_id: int) -> None:
+    safe_name = sanitize_filename(file_name)
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute('DELETE FROM item_view WHERE file_name = ?', (file_name,))
-    cur.execute('DELETE FROM monthly_totals WHERE file_name = ?', (file_name,))
+    cur.execute('DELETE FROM item_view WHERE file_name = ? AND user_id = ?', (safe_name, user_id))
+    cur.execute('DELETE FROM monthly_totals WHERE file_name = ? AND user_id = ?', (safe_name, user_id))
     conn.commit()
     conn.close()
-    file_path = os.path.join(UPLOAD_FOLDER, file_name)
+    file_path = get_user_file_path(safe_name, user_id)
     if os.path.exists(file_path):
         os.remove(file_path)
 
 
-def get_uploaded_files() -> List[str]:
-    return sorted([f for f in os.listdir(UPLOAD_FOLDER) if f.lower().endswith('.pdf')])
+def get_uploaded_files(user_id: int) -> List[str]:
+    user_dir = ensure_user_upload_dir(user_id)
+    return sorted([f for f in os.listdir(user_dir) if f.lower().endswith('.pdf')])
 
 
-def get_files_by_month(mes_key: Optional[str]) -> List[str]:
+def get_files_by_month(mes_key: Optional[str], user_id: int) -> List[str]:
     """Retorna nomes de arquivos já cadastrados para o mês informado."""
 
     if not mes_key:
         return []
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute('SELECT DISTINCT file_name FROM monthly_totals WHERE mes_key = ?', (mes_key,))
+    cur.execute('SELECT DISTINCT file_name FROM monthly_totals WHERE mes_key = ? AND user_id = ?', (mes_key, user_id))
     rows = cur.fetchall()
     conn.close()
     return [row['file_name'] for row in rows]
 
 
-def get_files_by_month_with_type(mes_key: Optional[str]) -> List[Tuple[str, Optional[str]]]:
+def get_files_by_month_with_type(mes_key: Optional[str], user_id: int) -> List[Tuple[str, Optional[str]]]:
     """Retorna pares (nome, tipo) para arquivos já cadastrados em ``mes_key``."""
 
-    files = get_files_by_month(mes_key)
+    files = get_files_by_month(mes_key, user_id)
     return [(fname, extract_statement_type(fname)) for fname in files]
 
 
-def get_months_available() -> List[Tuple[str, str]]:
+def get_months_available(user_id: int) -> List[Tuple[str, str]]:
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute('SELECT DISTINCT mes_key, mes_ano FROM item_view WHERE mes_key IS NOT NULL ORDER BY mes_key')
+    cur.execute(
+        'SELECT DISTINCT mes_key, mes_ano FROM item_view WHERE mes_key IS NOT NULL AND user_id = ? ORDER BY mes_key',
+        (user_id,),
+    )
     rows = cur.fetchall()
     conn.close()
     return [(row['mes_key'], row['mes_ano']) for row in rows]
 
 
-def get_items_by_month(mes_key: str):
+def get_items_by_month(mes_key: str, user_id: int):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
         '''SELECT descricao, quantidade, proventos, descontos, file_name
-           FROM item_view WHERE mes_key = ? ORDER BY descricao''',
-        (mes_key,),
+           FROM item_view WHERE mes_key = ? AND user_id = ? ORDER BY descricao''',
+        (mes_key, user_id),
     )
     rows = cur.fetchall()
     conn.close()
     return rows
 
 
-def get_totals_by_month(mes_key: str):
+def get_totals_by_month(mes_key: str, user_id: int):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
         '''SELECT SUM(total_proventos) AS total_proventos,
                   SUM(total_descontos) AS total_descontos,
                   SUM(liquido) AS liquido
-           FROM monthly_totals WHERE mes_key = ?''',
-        (mes_key,)
+           FROM monthly_totals WHERE mes_key = ? AND user_id = ?''',
+        (mes_key, user_id),
     )
     row = cur.fetchone()
     conn.close()
     return row
 
 
-def get_aggregated_series(start_key: Optional[str] = None, end_key: Optional[str] = None):
+def get_aggregated_series(start_key: Optional[str] = None, end_key: Optional[str] = None, user_id: Optional[int] = None):
     conn = get_db_connection()
     cur = conn.cursor()
 
     conditions = ["mes_key IS NOT NULL"]
     params: List[str] = []
+    if user_id is not None:
+        conditions.append("user_id = ?")
+        params.append(user_id)
     if start_key:
         conditions.append("mes_key >= ?")
         params.append(start_key)
@@ -292,15 +417,15 @@ def get_aggregated_series(start_key: Optional[str] = None, end_key: Optional[str
     return rows
 
 
-def get_monthly_totals_by_month(mes_key: str):
+def get_monthly_totals_by_month(mes_key: str, user_id: int):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
         '''SELECT file_name, total_proventos, total_descontos, liquido
            FROM monthly_totals
-           WHERE mes_key = ?
+           WHERE mes_key = ? AND user_id = ?
            ORDER BY file_name''',
-        (mes_key,),
+        (mes_key, user_id),
     )
     rows = cur.fetchall()
     conn.close()
@@ -315,8 +440,118 @@ def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, msg: Optional[str] = None, confirm: Optional[int] = None):
-    files = get_uploaded_files()
-    return templates.TemplateResponse('index.html', {"request": request, "files": files, "msg": msg, "confirm": confirm})
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+
+    files = get_uploaded_files(current_user['id'])
+    return templates.TemplateResponse(
+        'index.html',
+        {
+            "request": request,
+            "files": files,
+            "msg": msg,
+            "confirm": confirm,
+            "current_user": current_user,
+        },
+    )
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_get(request: Request, next: Optional[str] = None, msg: Optional[str] = None):
+    current_user = get_current_user(request)
+    if current_user:
+        redirect_to = next or app.url_path_for('index')
+        return RedirectResponse(redirect_to, status_code=303)
+    return templates.TemplateResponse(
+        'login.html',
+        {"request": request, "next": next, "msg": msg, "current_user": current_user},
+    )
+
+
+@app.post("/login")
+async def login_post(request: Request):
+    form_data = await request.form()
+    username = (form_data.get('username') or '').strip()
+    password = form_data.get('password') or ''
+    next_url = form_data.get('next') or None
+
+    error = None
+    user = get_user_by_username(username) if username else None
+    if not user:
+        error = 'Usuário ou senha inválidos.'
+    else:
+        if not verify_password(password, user['salt'], user['password_hash']):
+            error = 'Usuário ou senha inválidos.'
+
+    if error:
+        return templates.TemplateResponse(
+            'login.html',
+            {
+                "request": request,
+                "next": next_url,
+                "msg": error,
+                "current_user": None,
+            },
+            status_code=400,
+        )
+
+    request.session['user_id'] = user['id']
+    redirect_to = next_url or app.url_path_for('index')
+    return RedirectResponse(redirect_to, status_code=303)
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_get(request: Request, msg: Optional[str] = None):
+    current_user = get_current_user(request)
+    if current_user:
+        return RedirectResponse(app.url_path_for('index'), status_code=303)
+    return templates.TemplateResponse(
+        'register.html',
+        {"request": request, "msg": msg, "current_user": current_user},
+    )
+
+
+@app.post("/register")
+async def register_post(request: Request):
+    form_data = await request.form()
+    username = (form_data.get('username') or '').strip()
+    password = form_data.get('password') or ''
+    confirm_password = form_data.get('confirm_password') or ''
+
+    if not username or not password:
+        msg = 'Informe usuário e senha para continuar.'
+        return templates.TemplateResponse(
+            'register.html',
+            {"request": request, "msg": msg, "current_user": None},
+            status_code=400,
+        )
+
+    if password != confirm_password:
+        msg = 'As senhas não conferem.'
+        return templates.TemplateResponse(
+            'register.html',
+            {"request": request, "msg": msg, "current_user": None},
+            status_code=400,
+        )
+
+    user_id = create_user(username, password)
+    if not user_id:
+        msg = 'Usuário já existe. Escolha outro nome.'
+        return templates.TemplateResponse(
+            'register.html',
+            {"request": request, "msg": msg, "current_user": None},
+            status_code=400,
+        )
+
+    request.session['user_id'] = user_id
+    return RedirectResponse(app.url_path_for('index'), status_code=303)
+
+
+@app.post("/logout")
+async def logout(request: Request):
+    request.session.pop('user_id', None)
+    return RedirectResponse(app.url_path_for('login_get'), status_code=303)
 
 
 @app.post("/upload")
@@ -327,6 +562,10 @@ async def upload_file(request: Request):
     isso, este handler lê o corpo da requisição diretamente e faz o
     parsing manual do conteúdo multipart/form-data.
     """
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+    user_id = current_user['id']
     # Verifica content-type e extrai boundary
     content_type = request.headers.get('content-type', '')
     if 'multipart/form-data' not in content_type:
@@ -387,14 +626,14 @@ async def upload_file(request: Request):
             messages.append(f'Extensão de arquivo não permitida para {file_name}.')
             continue
 
-        secure_name = file_name.replace('/', '_')
+        secure_name = sanitize_filename(file_name)
         statement_type = extract_statement_type(secure_name)
         if not statement_type:
             messages.append(
                 f'Nome de arquivo inválido para {secure_name}. Use os prefixos FolMen, Outros ou PagPLR antes do primeiro "_".'
             )
             continue
-        save_path = os.path.join(UPLOAD_FOLDER, secure_name)
+        save_path = get_user_file_path(secure_name, user_id)
         temp_path = save_path + '.upload'
         with open(temp_path, 'wb') as f:
             f.write(file_content)
@@ -406,7 +645,7 @@ async def upload_file(request: Request):
             continue
 
         mes_key = parsed.get('mes_key')
-        existing_month_files = get_files_by_month_with_type(mes_key)
+        existing_month_files = get_files_by_month_with_type(mes_key, user_id)
         existing_types = {ftype: fname for fname, ftype in existing_month_files if ftype}
         duplicate_name = os.path.exists(save_path)
         duplicate_type = bool(mes_key and statement_type in existing_types)
@@ -427,14 +666,14 @@ async def upload_file(request: Request):
             continue
 
         if duplicate_name:
-            remove_statement(secure_name)
+            remove_statement(secure_name, user_id)
         if duplicate_type:
             conflicting = existing_types.get(statement_type)
             if conflicting and conflicting != secure_name:
-                remove_statement(conflicting)
+                remove_statement(conflicting, user_id)
 
         os.replace(temp_path, save_path)
-        insert_statement(secure_name, parsed)
+        insert_statement(secure_name, parsed, user_id)
         messages.append(f'Arquivo {secure_name} carregado com sucesso.')
 
     if not messages:
@@ -448,8 +687,12 @@ async def upload_file(request: Request):
 
 
 @app.post("/delete/{filename:path}")
-async def delete_file(filename: str):
-    remove_statement(filename)
+async def delete_file(request: Request, filename: str):
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+
+    remove_statement(filename, current_user['id'])
     url = app.url_path_for('index') + '?msg=' + f'Arquivo {filename} removido.'
     return RedirectResponse(url, status_code=303)
 
@@ -457,16 +700,20 @@ async def delete_file(filename: str):
 @app.get("/consulta", response_class=HTMLResponse)
 async def consulta_get(request: Request):
     """Renderiza a página de consulta. Aceita mes_key via query string."""
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+
     mes_key = request.query_params.get('mes_key') if request.query_params else None
-    months = get_months_available()
+    months = get_months_available(current_user['id'])
     items = []
     totals = None
     descontos_pct = None
     liquido_pct = None
     selected_key = mes_key
     if selected_key:
-        items = get_items_by_month(selected_key)
-        totals = get_totals_by_month(selected_key)
+        items = get_items_by_month(selected_key, current_user['id'])
+        totals = get_totals_by_month(selected_key, current_user['id'])
         if totals:
             total_proventos = totals['total_proventos']
             descontos_pct = calculate_percentage(totals['total_descontos'], total_proventos)
@@ -481,6 +728,7 @@ async def consulta_get(request: Request):
             "selected_key": selected_key,
             "descontos_pct": descontos_pct,
             "liquido_pct": liquido_pct,
+            "current_user": current_user,
         },
     )
 
@@ -489,7 +737,11 @@ async def consulta_get(request: Request):
 
 @app.get("/dashboard_totais", response_class=HTMLResponse)
 async def dashboard_totais(request: Request):
-    months_available = get_months_available()
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+
+    months_available = get_months_available(current_user['id'])
     start_month = request.query_params.get('start') if request.query_params else None
     end_month = request.query_params.get('end') if request.query_params else None
     selected_types = request.query_params.getlist('types') if request.query_params else []
@@ -513,7 +765,7 @@ async def dashboard_totais(request: Request):
         start_key, end_key = end_key, start_key
         start_month, end_month = end_month, start_month
 
-    series = get_aggregated_series(start_key=start_key, end_key=end_key)
+    series = get_aggregated_series(start_key=start_key, end_key=end_key, user_id=current_user['id'])
     last_month = None
     prev_month = None
     variations = {
@@ -654,14 +906,33 @@ async def dashboard_totais(request: Request):
             "prev_month": prev_month,
             "variations": variations,
             "band_table_rows": band_table_rows,
+            "current_user": current_user,
         },
     )
 
 
 @app.get("/download/{filename:path}")
-async def download_file(filename: str):
-    file_path = os.path.join(UPLOAD_FOLDER, filename)
-    return FileResponse(file_path, filename=filename)
+async def download_file(request: Request, filename: str):
+    current_user, redirect_response = ensure_authenticated(request)
+    if redirect_response:
+        return redirect_response
+
+    safe_name = sanitize_filename(filename)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT 1 FROM monthly_totals WHERE file_name = ? AND user_id = ? LIMIT 1', (safe_name, current_user['id']))
+    allowed = cur.fetchone()
+    conn.close()
+    if not allowed:
+        url = app.url_path_for('index') + '?msg=' + 'Arquivo não encontrado.'
+        return RedirectResponse(url, status_code=303)
+
+    file_path = get_user_file_path(safe_name, current_user['id'])
+    if not os.path.exists(file_path):
+        url = app.url_path_for('index') + '?msg=' + 'Arquivo indisponível.'
+        return RedirectResponse(url, status_code=303)
+
+    return FileResponse(file_path, filename=safe_name)
 
 
 if __name__ == '__main__':
