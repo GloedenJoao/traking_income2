@@ -31,7 +31,7 @@
     <tbody>
       {% for file in files %}
       <tr>
-        <td><a href="{{ '/uploads/' + file }}" target="_blank">{{ file }}</a></td>
+        <td><a href="{{ request.url_for('download_file', filename=file) }}" target="_blank">{{ file }}</a></td>
         <td>
           <form action="{{ request.url_for('delete_file', filename=file) }}" method="post" onsubmit="return confirm('Tem certeza que deseja deletar este arquivo?');">
             <button type="submit" class="btn btn-danger btn-sm">Excluir</button>

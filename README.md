@@ -30,7 +30,7 @@ python3 -m app.app
 ## Uso
 
 1. **Cadastro e login**: Ao acessar a aplicação, crie um usuário na página de cadastro e faça login. Sem estar autenticado não é possível visualizar ou enviar demonstrativos.
-2. **Upload**: Acesse a página inicial autenticada e utilize o formulário para enviar arquivos PDF. Somente arquivos com extensão `.pdf` são aceitos. Após o envio, o arquivo é armazenado no diretório `app/data/`, processado e suas informações são inseridas no banco de dados.
+2. **Upload**: Acesse a página inicial autenticada e utilize o formulário para enviar arquivos PDF. Somente arquivos com extensão `.pdf` são aceitos. Cada conta grava seus próprios uploads em um subdiretório exclusivo dentro de `app/data/` (por exemplo, `app/data/user_1/`), processando o PDF e armazenando os dados associados no banco. Usuários diferentes não enxergam nem herdam arquivos enviados por outras contas.
 3. **Consulta**: Na aba “Consulta”, selecione um mês disponível para listar todos os itens (descrição, quantidade, unidade, proventos e descontos) daquele período. A página exibe também os totais consolidados de proventos, descontos e valor líquido do mês selecionado.
 4. **Dashboard**: A aba “Dashboard” apresenta uma série histórica com os totais de proventos, descontos e valor líquido ao longo dos meses processados. Também exibe um gráfico de barras com a composição dos proventos e descontos do mês mais recente.
 5. **Exclusão**: Na página inicial, cada arquivo carregado possui um botão “Excluir”. Ao utilizá‑lo, o arquivo é removido do diretório de uploads e todos os registros associados são apagados do banco de dados.
